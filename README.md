@@ -30,7 +30,7 @@ That's it. `/seed-connect` opens your browser to sign in. `/add` takes anything 
 
 | Template | Description |
 |----------|-------------|
-| `/add <anything>` | Track something — Twitter handle, company, person, topic, URL |
+| `/add <anything>` | Track something — Twitter handle, company, person, blog, podcast, topic, URL |
 | `/tend` | Check signals for events and updates |
 | `/source <company>` | Research and create a deal submission |
 | `/enrich <deal>` | Add information to an existing deal |
@@ -39,6 +39,19 @@ That's it. `/seed-connect` opens your browser to sign in. `/add` takes anything 
 | `/import-follows` | Import Twitter/X following as signals |
 | `/twitter-check` | Verify Twitter/X authentication |
 | `/twitter-news` | Get trending Twitter/X news |
+
+## Scripts
+
+### Fetch RSS/Atom Feed
+
+```bash
+scripts/fetch-feed.js <url> [--limit 10]
+```
+
+Fetch and parse an RSS/Atom/JSON feed. Returns JSON with `title`, `link`, and `items[]`.
+Each item has: `title`, `link`, `pubDate`, `description` (truncated), `author`, `guid`, `categories`.
+
+Used during tending to check blog/newsletter/podcast/subreddit/GitHub signals that have a `feedUrl` in their metadata.
 
 ## Tools
 
