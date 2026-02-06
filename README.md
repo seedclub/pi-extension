@@ -12,10 +12,11 @@ Then in pi:
 
 ```
 /seed-connect
+/add @naval, @paulg, Stripe, AI safety
 /tend
 ```
 
-That's it. `/seed-connect` opens your browser to sign in. Or pass a token directly: `/seed-connect sn_abc123`
+That's it. `/seed-connect` opens your browser to sign in. `/add` takes anything — handles, names, URLs, topics. Or pass a token directly: `/seed-connect sn_abc123`
 
 ## Commands
 
@@ -29,9 +30,10 @@ That's it. `/seed-connect` opens your browser to sign in. Or pass a token direct
 
 | Template | Description |
 |----------|-------------|
+| `/add <anything>` | Track something — Twitter handle, company, person, topic, URL |
+| `/tend` | Check signals for events and updates |
 | `/source <company>` | Research and create a deal submission |
 | `/enrich <deal>` | Add information to an existing deal |
-| `/tend` | Check signals for events and updates |
 | `/activity` | View your contributions |
 | `/import-bookmarks` | Import Twitter/X bookmarks as signals |
 | `/import-follows` | Import Twitter/X following as signals |
