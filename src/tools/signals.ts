@@ -6,6 +6,25 @@ import { wrapExecute } from "../tool-utils";
 
 // --- Handlers ---
 
+export async function importSignals(args: {
+  input: string;
+  defaultType?: string;
+  tags?: string[];
+}) {
+  try {
+    const response = await api.post<any>("/signals/import", args);
+    return {
+      created: response.created,
+      skipped: response.skipped,
+      total: response.total,
+      message: response.message,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) return { error: error.message, status: error.status };
+    throw error;
+  }
+}
+
 export async function createSignal(args: {
   type: string;
   name: string;
@@ -137,6 +156,18 @@ const SignalSchema = Type.Object({
 });
 
 export function registerSignalTools(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "import_signals",
+    label: "Import Signals",
+    description: "Bulk import signals from raw text. Paste in Twitter/X URLs, @handles, GitHub URLs, or any mix — one per line or comma-separated. Parses, deduplicates, and creates all signals server-side in one fast operation. Returns only counts (created/skipped). Use this instead of batch_create_signals for large imports.",
+    parameters: Type.Object({
+      input: Type.String({ description: "Raw text containing URLs, @handles, or names to import — one per line or comma-separated" }),
+      defaultType: Type.Optional(SignalTypeEnum),
+      tags: Type.Optional(Type.Array(Type.String(), { description: "Tags to apply to all imported signals" })),
+    }),
+    execute: wrapExecute(importSignals),
+  });
+
   pi.registerTool({
     name: "create_signal",
     label: "Create Signal",
