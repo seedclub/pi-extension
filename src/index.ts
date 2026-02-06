@@ -165,7 +165,7 @@ function waitForCallback(
       }
 
       const done = (status: number, body: string) => {
-        res.writeHead(status, { "Content-Type": "text/html" });
+        res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
         res.end(body);
         clearTimeout(timeout);
         server.close();
