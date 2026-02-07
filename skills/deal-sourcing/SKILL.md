@@ -1,5 +1,5 @@
 ---
-name: Deal Sourcing
+name: deal-sourcing
 description: |
   This skill provides guidance for deal sourcing and research workflows in Seed Network.
   Use this skill when the user wants to source a deal, research a company for seed network,
