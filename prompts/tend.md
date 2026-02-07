@@ -4,7 +4,7 @@ Check your followed signals for newsworthy events and updates.
 
 ## What Tending Does
 
-1. Identifies signals that haven't been checked recently
+1. Identifies **your** signals that haven't been checked recently (only signals you created)
 2. Researches each signal for recent activity (last few days)
 3. Creates events for newsworthy occurrences
 4. Marks signals as tended to track when they were last checked
