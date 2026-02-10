@@ -17,7 +17,7 @@ interface SeedclubDeps {
 
 export function registerSeedclubCommand(pi: ExtensionAPI, deps: SeedclubDeps) {
   pi.registerCommand("seedclub", {
-    description: "Seed Club — your command center",
+    description: "The human+ venture network",
     handler: async (args, ctx) => {
       // Check connection state
       const stored = await getStoredToken();
