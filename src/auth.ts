@@ -20,8 +20,26 @@ export interface StoredToken {
   apiBase: string;
 }
 
+/**
+ * API base priority:
+ * 1. SEED_NETWORK_API env var (set by /seed-dev at runtime)
+ * 2. apiBase saved in token file (persists across restarts — set when you authenticated)
+ * 3. Production default
+ */
+let _cachedApiBase: string | null = null;
+
 export function getApiBase(): string {
-  return process.env.SEED_NETWORK_API || DEFAULT_API_BASE;
+  if (process.env.SEED_NETWORK_API) return process.env.SEED_NETWORK_API;
+  if (_cachedApiBase) return _cachedApiBase;
+  return DEFAULT_API_BASE;
+}
+
+export function setCachedApiBase(apiBase: string): void {
+  _cachedApiBase = apiBase;
+}
+
+export function clearCachedApiBase(): void {
+  _cachedApiBase = null;
 }
 
 export async function getStoredToken(): Promise<StoredToken | null> {
@@ -29,6 +47,10 @@ export async function getStoredToken(): Promise<StoredToken | null> {
     const content = await readFile(TOKEN_FILE, "utf-8");
     const stored = JSON.parse(content) as StoredToken;
     if (!stored.token || !stored.token.startsWith("sn_")) return null;
+    // Hydrate the API base from the token file so restarts remember which server you're on
+    if (stored.apiBase && !process.env.SEED_NETWORK_API) {
+      _cachedApiBase = stored.apiBase;
+    }
     return stored;
   } catch {
     return null;

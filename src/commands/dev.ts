@@ -9,7 +9,8 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { getApiBase } from "../auth";
+import { getApiBase, getStoredToken, storeToken, setCachedApiBase, clearCachedApiBase } from "../auth";
+import { setCachedToken } from "../api-client";
 
 const DEFAULT_DEV_URL = "http://localhost:3000";
 const PROD_URL = "https://beta.seedclub.com";
@@ -29,6 +30,9 @@ export function registerDevCommand(pi: ExtensionAPI) {
 
       if (arg === "off" || arg === "prod") {
         delete process.env.SEED_NETWORK_API;
+        clearCachedApiBase();
+        // Update stored token to point back to production
+        await updateStoredApiBase(PROD_URL);
         ctx.ui.setStatus("seed-api", undefined);
         ctx.ui.notify(`✓ Switched to production: ${PROD_URL}`, "info");
         return;
@@ -39,8 +43,19 @@ export function registerDevCommand(pi: ExtensionAPI) {
       const devUrl = isNaN(port) ? DEFAULT_DEV_URL : `http://localhost:${port}`;
 
       process.env.SEED_NETWORK_API = devUrl;
+      setCachedApiBase(devUrl);
+      // Persist so it survives restarts
+      await updateStoredApiBase(devUrl);
       ctx.ui.setStatus("seed-api", `🔧 ${devUrl}`);
       ctx.ui.notify(`✓ Switched to dev: ${devUrl}`, "info");
     },
   });
+}
+
+async function updateStoredApiBase(apiBase: string) {
+  const stored = await getStoredToken();
+  if (stored) {
+    await storeToken(stored.token, stored.email, apiBase);
+    setCachedToken(stored.token, apiBase);
+  }
 }

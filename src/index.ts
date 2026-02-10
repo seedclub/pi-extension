@@ -11,29 +11,24 @@ import { randomBytes } from "node:crypto";
 import { registerDealTools } from "./tools/deals";
 import { registerCompanyTools } from "./tools/companies";
 import { registerSignalTools } from "./tools/signals";
-import { registerResearchTools } from "./tools/research";
 import { registerEnrichmentTools } from "./tools/enrichments";
-import { registerEventTools } from "./tools/events";
-import { registerTwitterTools } from "./tools/twitter";
 import { registerUtilityTools } from "./tools/utility";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
 import { registerAddCommand } from "./commands/add";
-import { registerImportCommand } from "./commands/import";
+// /import merged into /add — single unified entry point
 import { registerSignalsCommand } from "./commands/signals";
 import { registerDevCommand } from "./commands/dev";
 import { registerSeedclubCommand } from "./commands/seedclub";
+import { registerSortCommand } from "./commands/sort";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
   registerDealTools(pi);
   registerCompanyTools(pi);
   registerSignalTools(pi);
-  registerResearchTools(pi);
   registerEnrichmentTools(pi);
-  registerEventTools(pi);
-  registerTwitterTools(pi);
   registerUtilityTools(pi);
 
   // --- Shared handlers ---
@@ -86,8 +81,8 @@ export default function (pi: ExtensionAPI) {
 
   // Quick-action shortcuts (still useful for power users)
   registerAddCommand(pi);
-  registerImportCommand(pi);
   registerSignalsCommand(pi);
+  registerSortCommand(pi);
   registerDevCommand(pi);
 
   // --- Show connection status on session start ---
@@ -95,7 +90,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const stored = await getStoredToken();
     if (stored) {
+      const isDev = stored.apiBase?.includes("localhost") || stored.apiBase?.includes("127.0.0.1");
       ctx.ui.setStatus("seed", `🌱 ${stored.email}`);
+      if (isDev) ctx.ui.setStatus("seed-api", `🔧 ${stored.apiBase}`);
     } else if (process.env.SEED_NETWORK_TOKEN) {
       ctx.ui.setStatus("seed", "🌱 Connected (env)");
     }
