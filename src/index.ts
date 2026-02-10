@@ -63,12 +63,12 @@ export default function (pi: ExtensionAPI) {
       const state = randomBytes(16).toString("hex");
       const authUrl = `${apiBase}/auth/cli/authorize?port=${port}&state=${state}`;
 
-      ctx.ui.notify(`Opening browser to sign in...`, "info");
+      ctx.ui.notify(`Opening browser to sign in...\n${authUrl}`, "info");
 
       // Open the URL in the default browser
       const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      pi.exec(openCmd, [authUrl]).catch(() => {
-        // If open fails, the URL is still shown in the notification below
+      pi.exec(openCmd, [authUrl]).catch((err) => {
+        ctx.ui.notify(`Couldn't open browser automatically. Visit:\n${authUrl}`, "warning");
       });
 
       try {
