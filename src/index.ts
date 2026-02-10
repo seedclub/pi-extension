@@ -44,9 +44,7 @@ export default function (pi: ExtensionAPI) {
 
   // --- Auth Commands ---
 
-  pi.registerCommand("seed-connect", {
-    description: "Connect to Seed Network (opens browser, or pass a token directly)",
-    handler: async (args, ctx) => {
+  const connectHandler = async (args: string | undefined, ctx: any) => {
       const token = args?.trim();
 
       // Direct token path: /seed-connect sn_abc123
@@ -80,7 +78,16 @@ export default function (pi: ExtensionAPI) {
         const msg = error instanceof Error ? error.message : String(error);
         ctx.ui.notify(`Authentication failed: ${msg}`, "error");
       }
-    },
+  };
+
+  pi.registerCommand("seed-connect", {
+    description: "Connect to Seed Network (opens browser, or pass a token directly)",
+    handler: connectHandler,
+  });
+
+  pi.registerCommand("sc", {
+    description: "Connect to Seed Network (shorthand for /seed-connect)",
+    handler: connectHandler,
   });
 
   pi.registerCommand("seed-logout", {
