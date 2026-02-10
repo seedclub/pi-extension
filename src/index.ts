@@ -2,8 +2,7 @@
  * Seed Network extension for pi
  *
  * Install: pi install git@github.com:seedclub/pi-extension
- * Connect: /seed-connect
- * Go:      /tend, /source, /enrich, etc.
+ * Start:   /seedclub
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -24,6 +23,7 @@ import { registerAddCommand } from "./commands/add";
 import { registerImportCommand } from "./commands/import";
 import { registerSignalsCommand } from "./commands/signals";
 import { registerDevCommand } from "./commands/dev";
+import { registerSeedclubCommand } from "./commands/seedclub";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
@@ -36,82 +36,59 @@ export default function (pi: ExtensionAPI) {
   registerTwitterTools(pi);
   registerUtilityTools(pi);
 
-  // --- Magic Commands (no LLM, instant) ---
+  // --- Shared handlers ---
+
+  async function connect(args: string | undefined, ctx: any) {
+    const token = args?.trim();
+
+    // Direct token path
+    if (token) {
+      if (!token.startsWith("sn_")) {
+        ctx.ui.notify("Invalid token. Seed Network tokens start with sn_", "error");
+        return;
+      }
+      await verifyAndStore(token, ctx);
+      return;
+    }
+
+    // Browser auth path
+    const apiBase = getApiBase();
+    const port = await findAvailablePort();
+    const state = randomBytes(16).toString("hex");
+    const authUrl = `${apiBase}/auth/cli/authorize?port=${port}&state=${state}`;
+
+    ctx.ui.notify(`Opening browser to sign in...\n${authUrl}`, "info");
+
+    const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+    pi.exec(openCmd, [authUrl]).catch(() => {
+      ctx.ui.notify(`Couldn't open browser automatically. Visit:\n${authUrl}`, "warning");
+    });
+
+    try {
+      const result = await waitForCallback(port, state, apiBase);
+      await verifyAndStore(result.token, ctx, result.email);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Authentication failed: ${msg}`, "error");
+    }
+  }
+
+  async function disconnect(ctx: any) {
+    await clearCredentials();
+    ctx.ui.setStatus("seed", undefined);
+    ctx.ui.notify("Logged out of Seed Network", "info");
+  }
+
+  // --- Commands ---
+
+  // The one command
+  registerSeedclubCommand(pi, { connect, disconnect });
+
+  // Quick-action shortcuts (still useful for power users)
   registerAddCommand(pi);
   registerImportCommand(pi);
   registerSignalsCommand(pi);
   registerDevCommand(pi);
-
-  // --- Auth Commands ---
-
-  const connectHandler = async (args: string | undefined, ctx: any) => {
-      const token = args?.trim();
-
-      // Direct token path: /seed-connect sn_abc123
-      if (token) {
-        if (!token.startsWith("sn_")) {
-          ctx.ui.notify("Invalid token. Seed Network tokens start with sn_", "error");
-          return;
-        }
-        await verifyAndStore(token, ctx);
-        return;
-      }
-
-      // Browser auth path: /seed-connect
-      const apiBase = getApiBase();
-      const port = await findAvailablePort();
-      const state = randomBytes(16).toString("hex");
-      const authUrl = `${apiBase}/auth/cli/authorize?port=${port}&state=${state}`;
-
-      ctx.ui.notify(`Opening browser to sign in...\n${authUrl}`, "info");
-
-      // Open the URL in the default browser
-      const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      pi.exec(openCmd, [authUrl]).catch((err) => {
-        ctx.ui.notify(`Couldn't open browser automatically. Visit:\n${authUrl}`, "warning");
-      });
-
-      try {
-        const result = await waitForCallback(port, state, apiBase);
-        await verifyAndStore(result.token, ctx, result.email);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Authentication failed: ${msg}`, "error");
-      }
-  };
-
-  pi.registerCommand("seed-connect", {
-    description: "Connect to Seed Network (opens browser, or pass a token directly)",
-    handler: connectHandler,
-  });
-
-  pi.registerCommand("sc", {
-    description: "Connect to Seed Network (shorthand for /seed-connect)",
-    handler: connectHandler,
-  });
-
-  pi.registerCommand("seed-logout", {
-    description: "Disconnect from Seed Network",
-    handler: async (_args, ctx) => {
-      await clearCredentials();
-      ctx.ui.setStatus("seed", undefined);
-      ctx.ui.notify("Logged out of Seed Network", "info");
-    },
-  });
-
-  pi.registerCommand("seed-status", {
-    description: "Check Seed Network connection status",
-    handler: async (_args, ctx) => {
-      const stored = await getStoredToken();
-      if (stored) {
-        ctx.ui.notify(`Connected as ${stored.email} (${stored.apiBase})`, "info");
-      } else if (process.env.SEED_NETWORK_TOKEN) {
-        ctx.ui.notify("Connected via SEED_NETWORK_TOKEN env var", "info");
-      } else {
-        ctx.ui.notify("Not connected. Run /seed-connect", "warning");
-      }
-    },
-  });
 
   // --- Show connection status on session start ---
 
@@ -124,7 +101,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // --- Helpers (scoped to this extension) ---
+  // --- Helpers ---
 
   async function verifyAndStore(token: string, ctx: any, emailHint?: string) {
     const apiBase = getApiBase();
