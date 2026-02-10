@@ -8,7 +8,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { getStoredToken, getApiBase } from "../auth";
 import { getCurrentUser } from "../tools/utility";
-import { listSignals } from "../tools/signals";
+import { getUnsortedSignals } from "../tools/signals";
+import { runSortFlow } from "./sort";
 
 interface SeedclubDeps {
   connect: (args: string | undefined, ctx: any) => Promise<void>;
@@ -36,70 +37,46 @@ export function registerSeedclubCommand(pi: ExtensionAPI, deps: SeedclubDeps) {
         return await showDisconnectedMenu(args, ctx);
       }
 
-      return await showMainMenu(user, ctx);
+      return await showMainMenu(pi, user, ctx);
     },
   });
 
   // --- Disconnected state ---
 
   async function showDisconnectedMenu(args: string | undefined, ctx: any) {
-    const apiBase = getApiBase();
-    const isDev = apiBase.includes("localhost") || apiBase.includes("127.0.0.1");
-
-    const options = [
-      "🔑  Connect to Seed Club",
-      ...(isDev ? [] : ["🔧  Switch to local dev server"]),
-      ...(isDev ? ["🌐  Switch to production"] : []),
-    ];
-
-    const choice = await ctx.ui.select("🌱 Seed Club", options);
-    if (!choice) return;
-
-    if (choice.startsWith("🔑")) {
-      await deps.connect(args, ctx);
-    } else if (choice.startsWith("🔧")) {
-      process.env.SEED_NETWORK_API = "http://localhost:3000";
-      ctx.ui.setStatus("seed-api", "🔧 localhost:3000");
-      ctx.ui.notify("✓ Switched to local dev. Run /seedclub again to connect.", "info");
-    } else if (choice.startsWith("🌐")) {
-      delete process.env.SEED_NETWORK_API;
-      ctx.ui.setStatus("seed-api", undefined);
-      ctx.ui.notify("✓ Switched to production.", "info");
-    }
+    // Not connected — only option is to connect. No dev/prod toggle until authenticated.
+    await deps.connect(args, ctx);
   }
 
   // --- Connected state ---
 
-  async function showMainMenu(user: any, ctx: any) {
+  async function showMainMenu(pi: ExtensionAPI, user: any, ctx: any) {
     const apiBase = getApiBase();
     const isDev = apiBase.includes("localhost") || apiBase.includes("127.0.0.1");
     const envLabel = isDev ? " (dev)" : "";
 
-    // Quick stats fetch
-    let signalCount = "?";
+    // Quick stats fetch — keep the full result so we can pass it to sort
+    let unsortedCount = "?";
+    let unsortedResult: any = null;
     try {
-      const result = await listSignals({ limit: 1 });
-      if (!("error" in result)) signalCount = String(result.total ?? 0);
+      const result = await getUnsortedSignals();
+      if (!("error" in result)) {
+        unsortedResult = result;
+        unsortedCount = String(result.unsortedCount ?? result.unsorted?.length ?? 0);
+      }
     } catch {}
 
     const greeting = `🌱 ${user.name}${envLabel}`;
 
+    const sortLabel = unsortedCount === "0"
+      ? `📋  Sort signals (✓ all sorted)`
+      : `📋  Sort signals (${unsortedCount} unsorted)`;
+
     const options = [
       `📡  Add signals`,
-      `📋  My signals (${signalCount})`,
-      `📦  Import signals`,
-      `🔍  Search signals`,
+      sortLabel,
       `───────────────`,
-      `🎯  Source a deal`,
-      `💼  Browse deals`,
-      `🔬  Research`,
-      `───────────────`,
-      `🐦  Twitter check`,
-      `📰  Twitter news`,
-      `📚  Import follows`,
-      `🔖  Import bookmarks`,
-      `───────────────`,
-      `👤  My profile`,
+      ...(isDev ? [`🌐  Switch to production`] : [`🔧  Switch to local dev`]),
       `🚪  Disconnect`,
     ];
 
@@ -108,71 +85,37 @@ export function registerSeedclubCommand(pi: ExtensionAPI, deps: SeedclubDeps) {
 
     const action = choice.slice(4).trim(); // strip emoji + spaces
 
+    if (action.startsWith("Sort signals")) {
+      return await runSortFlow(pi, ctx, unsortedResult);
+    }
+
     switch (action) {
       case "Add signals":
         ctx.ui.setEditorText("/add ");
         break;
 
-      case `My signals (${signalCount})`:
-        pi.sendUserMessage("/signals");
-        break;
-
-      case "Import signals":
-        pi.sendUserMessage("/import");
-        break;
-
-      case "Search signals":
-        const query = await ctx.ui.input("Search signals:", "");
-        if (query) pi.sendUserMessage(`/signals search ${query}`);
-        break;
-
-      case "Source a deal":
-        pi.sendUserMessage("/source");
-        break;
-
-      case "Browse deals":
-        pi.sendUserMessage("List all available deals with their current status");
-        break;
-
-      case "Research":
-        pi.sendUserMessage("Show recent research artifacts");
-        break;
-
-      case "Twitter check":
-        pi.sendUserMessage("/twitter-check");
-        break;
-
-      case "Twitter news":
-        pi.sendUserMessage("/twitter-news");
-        break;
-
-      case "Import follows":
-        pi.sendUserMessage("/import-follows");
-        break;
-
-      case "Import bookmarks":
-        pi.sendUserMessage("/import-bookmarks");
-        break;
-
-      case "My profile": {
-        const stats = user.stats || {};
-        const lines = [
-          `Name: ${user.name}`,
-          `Email: ${user.email}`,
-          `Role: ${user.role}`,
-          `API: ${apiBase}`,
-          ``,
-          `Deals created: ${stats.dealsCreated ?? 0}`,
-          `Research saved: ${stats.researchSaved ?? 0}`,
-          `Enrichments: ${stats.enrichmentsSubmitted ?? 0}`,
-        ];
-        ctx.ui.notify(lines.join("\n"), "info");
+      case "Switch to local dev": {
+        const portInput = await ctx.ui.input("Dev server port:", "3000");
+        if (!portInput) break;
+        const port = parseInt(portInput, 10) || 3000;
+        const devUrl = `http://localhost:${port}`;
+        process.env.SEED_NETWORK_API = devUrl;
+        ctx.ui.setStatus("seed-api", `🔧 ${devUrl}`);
+        ctx.ui.notify(`✓ Switched to dev: ${devUrl}`, "info");
         break;
       }
+
+      case "Switch to production":
+        delete process.env.SEED_NETWORK_API;
+        ctx.ui.setStatus("seed-api", undefined);
+        ctx.ui.notify("✓ Switched to production", "info");
+        break;
 
       case "Disconnect":
         await deps.disconnect(ctx);
         break;
     }
   }
+
+
 }
