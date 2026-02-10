@@ -1,8 +1,24 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
+import { Text } from "@mariozechner/pi-tui";
 import { api, ApiError } from "../api-client";
 import { wrapExecute } from "../tool-utils";
+
+// --- Rendering helpers ---
+
+const TYPE_EMOJI: Record<string, string> = {
+  twitter_account: "🐦",
+  company: "🏢",
+  person: "👤",
+  blog: "📝",
+  github_profile: "🐙",
+  topic: "💡",
+  newsletter: "📬",
+  podcast: "🎙️",
+  subreddit: "📢",
+  custom: "📌",
+};
 
 // --- Handlers ---
 
@@ -166,6 +182,20 @@ export function registerSignalTools(pi: ExtensionAPI) {
       tags: Type.Optional(Type.Array(Type.String(), { description: "Tags to apply to all imported signals" })),
     }),
     execute: wrapExecute(importSignals),
+    renderCall(args: any, theme: any) {
+      const lines = (args.input || "").split(/[\n,]+/).filter((l: string) => l.trim()).length;
+      let text = theme.fg("toolTitle", theme.bold("import_signals "));
+      text += theme.fg("muted", `${lines} items`);
+      if (args.tags?.length) text += theme.fg("dim", ` [${args.tags.join(", ")}]`);
+      return new Text(text, 0, 0);
+    },
+    renderResult(result: any, { expanded }: any, theme: any) {
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const d = result.details || {};
+      let text = theme.fg("success", `✓ ${d.created ?? 0} created`);
+      if (d.skipped) text += theme.fg("dim", `, ${d.skipped} skipped`);
+      return new Text(text, 0, 0);
+    },
   });
 
   pi.registerTool({
@@ -174,6 +204,19 @@ export function registerSignalTools(pi: ExtensionAPI) {
     description: "Create a new signal in Seed Network. Signals track entities worth watching: Twitter accounts, blogs, topics, people, etc.",
     parameters: SignalSchema,
     execute: wrapExecute(createSignal),
+    renderCall(args: any, theme: any) {
+      const emoji = TYPE_EMOJI[args.type] || "📌";
+      let text = theme.fg("toolTitle", theme.bold("create_signal "));
+      text += `${emoji} ${theme.fg("accent", args.name)}`;
+      text += theme.fg("dim", ` (${args.type})`);
+      return new Text(text, 0, 0);
+    },
+    renderResult(result: any, _opts: any, theme: any) {
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const d = result.details || {};
+      const emoji = TYPE_EMOJI[d.type] || "📌";
+      return new Text(theme.fg("success", `✓ ${emoji} ${d.name || "created"}`), 0, 0);
+    },
   });
 
   pi.registerTool({
@@ -184,6 +227,23 @@ export function registerSignalTools(pi: ExtensionAPI) {
       signals: Type.Array(SignalSchema, { description: "Array of signals to create" }),
     }),
     execute: wrapExecute(batchCreateSignals),
+    renderCall(args: any, theme: any) {
+      let text = theme.fg("toolTitle", theme.bold("batch_create_signals "));
+      text += theme.fg("muted", `${args.signals?.length || 0} signals`);
+      return new Text(text, 0, 0);
+    },
+    renderResult(result: any, { expanded }: any, theme: any) {
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const d = result.details || {};
+      let text = theme.fg("success", `✓ ${d.count ?? 0} created`);
+      if (expanded && d.signals?.length) {
+        for (const s of d.signals) {
+          const emoji = TYPE_EMOJI[s.type] || "📌";
+          text += `\n  ${emoji} ${s.name}`;
+        }
+      }
+      return new Text(text, 0, 0);
+    },
   });
 
   pi.registerTool({
@@ -207,6 +267,28 @@ export function registerSignalTools(pi: ExtensionAPI) {
       limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
     }),
     execute: wrapExecute(listSignals),
+    renderCall(args: any, theme: any) {
+      let text = theme.fg("toolTitle", theme.bold("list_signals"));
+      if (args.type) text += theme.fg("dim", ` type=${args.type}`);
+      if (args.tag) text += theme.fg("dim", ` tag=${args.tag}`);
+      return new Text(text, 0, 0);
+    },
+    renderResult(result: any, { expanded }: any, theme: any) {
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const d = result.details || {};
+      let text = theme.fg("muted", `${d.total ?? 0} signals`);
+      if (d.signals?.length) {
+        for (const s of d.signals.slice(0, expanded ? 50 : 10)) {
+          const emoji = TYPE_EMOJI[s.type] || "📌";
+          text += `\n  ${emoji} ${s.name}`;
+          if (s.tags?.length) text += theme.fg("dim", ` [${s.tags.join(", ")}]`);
+        }
+        if (!expanded && d.signals.length > 10) {
+          text += theme.fg("dim", `\n  ... and ${d.signals.length - 10} more`);
+        }
+      }
+      return new Text(text, 0, 0);
+    },
   });
 
   pi.registerTool({
@@ -218,6 +300,23 @@ export function registerSignalTools(pi: ExtensionAPI) {
       limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
     }),
     execute: wrapExecute(searchSignals),
+    renderCall(args: any, theme: any) {
+      return new Text(
+        theme.fg("toolTitle", theme.bold("search_signals ")) + theme.fg("accent", `"${args.query}"`),
+        0, 0
+      );
+    },
+    renderResult(result: any, { expanded }: any, theme: any) {
+      if (result.isError) return new Text(theme.fg("error", result.content?.[0]?.text || "Error"), 0, 0);
+      const d = result.details || {};
+      if (!d.signals?.length) return new Text(theme.fg("dim", `No results for "${d.query}"`), 0, 0);
+      let text = theme.fg("muted", `${d.total} results for "${d.query}":`);
+      for (const s of d.signals.slice(0, expanded ? 50 : 10)) {
+        const emoji = TYPE_EMOJI[s.type] || "📌";
+        text += `\n  ${emoji} ${s.name}`;
+      }
+      return new Text(text, 0, 0);
+    },
   });
 
   pi.registerTool({

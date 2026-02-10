@@ -20,6 +20,10 @@ import { registerUtilityTools } from "./tools/utility";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
+import { registerAddCommand } from "./commands/add";
+import { registerImportCommand } from "./commands/import";
+import { registerSignalsCommand } from "./commands/signals";
+import { registerDevCommand } from "./commands/dev";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
@@ -32,7 +36,13 @@ export default function (pi: ExtensionAPI) {
   registerTwitterTools(pi);
   registerUtilityTools(pi);
 
-  // --- Commands ---
+  // --- Magic Commands (no LLM, instant) ---
+  registerAddCommand(pi);
+  registerImportCommand(pi);
+  registerSignalsCommand(pi);
+  registerDevCommand(pi);
+
+  // --- Auth Commands ---
 
   pi.registerCommand("seed-connect", {
     description: "Connect to Seed Network (opens browser, or pass a token directly)",
