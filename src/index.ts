@@ -16,6 +16,7 @@ import { registerResearchTools } from "./tools/research";
 import { registerEnrichmentTools } from "./tools/enrichments";
 import { registerEventTools } from "./tools/events";
 import { registerTwitterTools } from "./tools/twitter";
+import { registerTwitterNetworkTools } from "./tools/twitter-network";
 import { registerUtilityTools } from "./tools/utility";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase } from "./auth";
@@ -30,6 +31,7 @@ export default function (pi: ExtensionAPI) {
   registerEnrichmentTools(pi);
   registerEventTools(pi);
   registerTwitterTools(pi);
+  registerTwitterNetworkTools(pi);
   registerUtilityTools(pi);
 
   // --- Commands ---
