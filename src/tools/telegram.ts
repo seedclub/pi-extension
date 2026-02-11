@@ -221,6 +221,56 @@ function renderSyncResult(result: any, { expanded }: any, theme: any): Text {
   return new Text(text, 0, 0);
 }
 
+function renderDigestCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_digest"));
+  if (args.chats?.length) text += theme.fg("dim", ` (${args.chats.join(", ")})`);
+  if (args.includeRead) text += theme.fg("dim", " +read");
+  if (args.dryRun) text += theme.fg("warning", " [dry run]");
+  return new Text(text, 0, 0);
+}
+
+function renderDigestResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+
+  const chats = details?.chats || [];
+  const total = details?.totalNewMessages || 0;
+
+  if (total === 0) {
+    return new Text(theme.fg("dim", "✓ No new messages since last digest"), 0, 0);
+  }
+
+  let text = theme.fg("success", `✓ ${total} new messages`) + theme.fg("dim", ` across ${chats.length} chats`);
+  if (details?.dryRun) text += theme.fg("warning", " [dry run — watermarks not updated]");
+
+  for (const c of chats) {
+    if (c.error) {
+      text += "\n  " + theme.fg("error", `✗ ${c.chat?.name}: ${c.error}`);
+      continue;
+    }
+    if (c.newCount === 0) continue;
+
+    text += "\n  " + theme.fg("accent", c.chat?.name || "?") + theme.fg("dim", ` (${c.newCount} messages)`);
+
+    if (expanded && c.messages) {
+      // Show first and last few messages as preview
+      const msgs = c.messages;
+      const preview = msgs.length <= 6 ? msgs : [...msgs.slice(0, 3), null, ...msgs.slice(-3)];
+      for (const m of preview) {
+        if (m === null) {
+          text += "\n    " + theme.fg("dim", `... ${msgs.length - 6} more ...`);
+          continue;
+        }
+        const sender = m.sender?.name || m.sender?.username || "?";
+        const msgText = (m.text || "[media]").slice(0, 100);
+        text += "\n    " + theme.fg("dim", sender + ":") + " " + msgText;
+      }
+    }
+  }
+
+  return new Text(text, 0, 0);
+}
+
 // --- Tool Handlers ---
 
 async function telegramChats(args: { limit?: number; type?: string; archived?: boolean }) {
@@ -277,6 +327,16 @@ async function telegramContacts(args: { search?: string }) {
   const scriptArgs: string[] = [];
   if (args.search) scriptArgs.push("--search", args.search);
   return runTelegramScript(execFn!, "contacts.py", scriptArgs);
+}
+
+async function telegramDigest(args: { chats?: string[]; limit?: number; includeRead?: boolean; dryRun?: boolean }) {
+  if (!telegramSessionExists()) throw new TelegramNotConnectedError();
+  const scriptArgs: string[] = [];
+  if (args.limit) scriptArgs.push("--limit", String(args.limit));
+  if (args.includeRead) scriptArgs.push("--include-read");
+  if (args.dryRun) scriptArgs.push("--dry-run");
+  if (args.chats?.length) scriptArgs.push("--chats", args.chats.join(","));
+  return runTelegramScript(execFn!, "digest.py", scriptArgs, { timeout: 120000 });
 }
 
 async function telegramSync(args: { full?: boolean; chats?: string[]; limit?: number }) {
@@ -459,6 +519,32 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramContacts(params);
+        return jsonResult(result);
+      } catch (e) {
+        if (e instanceof TelegramNotConnectedError) return notConnectedResult();
+        return errorResult(e);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "telegram_digest",
+    label: "Telegram Digest",
+    description: "Fetch all new messages since the last digest across your Telegram chats. Uses watermarks to track what's been processed — won't repeat messages even if you've read them in the Telegram app. Returns messages grouped by chat for the LLM to extract action items, followups, and mentions.",
+    parameters: Type.Object({
+      chats: Type.Optional(Type.Array(Type.String(), { description: "Only digest these chats (default: all with unread)" })),
+      limit: Type.Optional(Type.Number({ description: "Max messages per chat (default: 100)" })),
+      includeRead: Type.Optional(Type.Boolean({ description: "Also check previously-digested chats even if 0 unread in Telegram" })),
+      dryRun: Type.Optional(Type.Boolean({ description: "Fetch but don't update watermarks (preview mode)" })),
+    }),
+    renderCall: renderDigestCall,
+    renderResult: renderDigestResult,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      try {
+        onUpdate?.({
+          content: [{ type: "text" as const, text: "Fetching new messages since last digest..." }],
+        });
+        const result = await telegramDigest(params);
         return jsonResult(result);
       } catch (e) {
         if (e instanceof TelegramNotConnectedError) return notConnectedResult();
