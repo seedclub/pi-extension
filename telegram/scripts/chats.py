@@ -13,22 +13,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error, format_sender, format_message
+from _client import get_client, output, error, format_sender, format_message, classify_entity
 
-from telethon.tl.types import User, Chat, Channel
+from telethon.tl.types import Chat, Channel
 from telethon.errors import FloodWaitError
-
-
-def classify_dialog(dialog) -> str:
-    """Classify a dialog entity into a type string."""
-    entity = dialog.entity
-    if isinstance(entity, User):
-        return "bot" if entity.bot else "user"
-    elif isinstance(entity, Chat):
-        return "group"
-    elif isinstance(entity, Channel):
-        return "channel" if entity.broadcast else "supergroup"
-    return "unknown"
 
 
 async def list_chats(limit: int = 50, chat_type: str = "all", archived: bool = False):
@@ -51,7 +39,7 @@ async def list_chats(limit: int = 50, chat_type: str = "all", archived: bool = F
 
     chats = []
     for d in dialogs:
-        dtype = classify_dialog(d)
+        dtype = classify_entity(d.entity)
         if chat_type != "all" and dtype != chat_type:
             continue
 
@@ -120,7 +108,7 @@ async def list_chats_and_sync(limit: int = 500, chat_type: str = "all", archived
 
     chats_to_sync = []
     for d in dialogs:
-        dtype = classify_dialog(d)
+        dtype = classify_entity(d.entity)
         if chat_type != "all" and dtype != chat_type:
             continue
 

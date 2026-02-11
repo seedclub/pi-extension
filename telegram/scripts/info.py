@@ -12,50 +12,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error, format_sender
+from _client import get_client, output, error, format_sender, resolve_chat, classify_entity
 
 from telethon.errors import FloodWaitError, ChatAdminRequiredError
 from telethon.tl.types import User, Chat, Channel, ChannelParticipantsRecent
 from telethon.tl.functions.channels import GetFullChannelRequest, GetParticipantsRequest
 from telethon.tl.functions.messages import GetFullChatRequest
-
-
-async def resolve_chat(client, chat_arg: str):
-    """Resolve a chat argument to a Telethon entity."""
-    try:
-        chat_id = int(chat_arg)
-        return await client.get_entity(chat_id)
-    except (ValueError, Exception):
-        pass
-
-    if chat_arg.startswith("@"):
-        try:
-            return await client.get_entity(chat_arg)
-        except Exception:
-            pass
-
-    try:
-        dialogs = await client.get_dialogs(limit=200)
-        for d in dialogs:
-            if d.name and d.name.lower() == chat_arg.lower():
-                return d.entity
-        for d in dialogs:
-            if d.name and chat_arg.lower() in d.name.lower():
-                return d.entity
-    except Exception:
-        pass
-
-    return None
-
-
-def classify_entity(entity) -> str:
-    if isinstance(entity, User):
-        return "bot" if entity.bot else "user"
-    elif isinstance(entity, Chat):
-        return "group"
-    elif isinstance(entity, Channel):
-        return "channel" if entity.broadcast else "supergroup"
-    return "unknown"
 
 
 async def get_info(chat_arg: str, all_members: bool = False):
@@ -140,7 +102,8 @@ async def get_info(chat_arg: str, all_members: bool = False):
                 info["members"] = members
 
         elif isinstance(entity, User):
-            info["phone"] = entity.phone
+            # Don't expose other users' phone numbers in tool output
+            info["hasPhone"] = bool(entity.phone)
             info["isBot"] = entity.bot or False
             name_parts = [entity.first_name or "", entity.last_name or ""]
             info["fullName"] = " ".join(p for p in name_parts if p)

@@ -10,6 +10,7 @@ import json
 import sys
 import os
 from pathlib import Path
+from typing import NoReturn
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -62,10 +63,86 @@ def output(data):
     sys.exit(0)
 
 
-def error(msg: str, code: str = "ERROR"):
+def error(msg: str, code: str = "ERROR") -> NoReturn:
     """Print error JSON to stdout and exit with code 1."""
     print(json.dumps({"error": msg, "code": code}))
     sys.exit(1)
+
+
+async def resolve_chat(client, chat_arg: str):
+    """Resolve a chat argument (name, @username, or numeric ID) to a Telethon entity."""
+    from telethon.tl.types import User, Chat, Channel
+
+    # Try as numeric ID
+    try:
+        chat_id = int(chat_arg)
+        return await client.get_entity(chat_id)
+    except (ValueError, Exception):
+        pass
+
+    # Try as @username
+    if chat_arg.startswith("@"):
+        try:
+            return await client.get_entity(chat_arg)
+        except Exception:
+            pass
+
+    # Try as exact or fuzzy name match against dialogs
+    try:
+        dialogs = await client.get_dialogs(limit=200)
+        # Exact match first
+        for d in dialogs:
+            if d.name and d.name.lower() == chat_arg.lower():
+                return d.entity
+
+        # Fuzzy: starts with
+        for d in dialogs:
+            if d.name and d.name.lower().startswith(chat_arg.lower()):
+                return d.entity
+
+        # Fuzzy: contains
+        for d in dialogs:
+            if d.name and chat_arg.lower() in d.name.lower():
+                return d.entity
+    except Exception:
+        pass
+
+    return None
+
+
+def classify_entity(entity) -> str:
+    """Classify a Telethon entity into a chat type string."""
+    from telethon.tl.types import User, Chat, Channel
+
+    if isinstance(entity, User):
+        return "bot" if entity.bot else "user"
+    elif isinstance(entity, Chat):
+        return "group"
+    elif isinstance(entity, Channel):
+        return "channel" if entity.broadcast else "supergroup"
+    return "unknown"
+
+
+def parse_date(date_str: str):
+    """Parse an ISO 8601 or YYYY-MM-DD date string to a timezone-aware datetime."""
+    from datetime import datetime, timezone
+
+    try:
+        return datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+
+def parse_date_end_of_day(date_str: str):
+    """Parse a date string, setting time to end of day for date-only inputs."""
+    from datetime import datetime, timezone
+
+    try:
+        return datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return datetime.strptime(date_str, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc, hour=23, minute=59, second=59
+        )
 
 
 def format_sender(sender) -> dict:

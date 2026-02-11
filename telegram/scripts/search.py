@@ -13,48 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error, format_message
+from _client import get_client, output, error, format_message, resolve_chat, classify_entity, parse_date
 
 from telethon.errors import FloodWaitError
-from telethon.tl.types import User, Chat, Channel
-
-
-async def resolve_chat(client, chat_arg: str):
-    """Resolve a chat argument to a Telethon entity."""
-    try:
-        chat_id = int(chat_arg)
-        return await client.get_entity(chat_id)
-    except (ValueError, Exception):
-        pass
-
-    if chat_arg.startswith("@"):
-        try:
-            return await client.get_entity(chat_arg)
-        except Exception:
-            pass
-
-    try:
-        dialogs = await client.get_dialogs(limit=200)
-        for d in dialogs:
-            if d.name and d.name.lower() == chat_arg.lower():
-                return d.entity
-        for d in dialogs:
-            if d.name and chat_arg.lower() in d.name.lower():
-                return d.entity
-    except Exception:
-        pass
-
-    return None
-
-
-def classify_entity(entity) -> str:
-    if isinstance(entity, User):
-        return "bot" if entity.bot else "user"
-    elif isinstance(entity, Chat):
-        return "group"
-    elif isinstance(entity, Channel):
-        return "channel" if entity.broadcast else "supergroup"
-    return "unknown"
 
 
 async def search_messages(
@@ -93,12 +54,7 @@ async def search_messages(
             except Exception:
                 pass
 
-    min_date = None
-    if since:
-        try:
-            min_date = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
-        except ValueError:
-            min_date = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    min_date = parse_date(since) if since else None
 
     try:
         if entity:
@@ -111,10 +67,6 @@ async def search_messages(
             )
         else:
             # Global search across all chats
-            from telethon.tl.functions.messages import SearchGlobalRequest
-            from telethon.tl.types import InputMessagesFilterEmpty
-
-            # Use iter_messages with search for global search
             messages = []
             async for msg in client.iter_messages(None, search=query, limit=limit * 2):
                 messages.append(msg)

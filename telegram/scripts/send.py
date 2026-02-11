@@ -12,38 +12,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error
+from _client import get_client, output, error, resolve_chat
 
 from telethon.errors import FloodWaitError
-from telethon.tl.types import User, Chat, Channel
-
-
-async def resolve_chat(client, chat_arg: str):
-    """Resolve a chat argument to a Telethon entity."""
-    try:
-        chat_id = int(chat_arg)
-        return await client.get_entity(chat_id)
-    except (ValueError, Exception):
-        pass
-
-    if chat_arg.startswith("@"):
-        try:
-            return await client.get_entity(chat_arg)
-        except Exception:
-            pass
-
-    try:
-        dialogs = await client.get_dialogs(limit=200)
-        for d in dialogs:
-            if d.name and d.name.lower() == chat_arg.lower():
-                return d.entity
-        for d in dialogs:
-            if d.name and chat_arg.lower() in d.name.lower():
-                return d.entity
-    except Exception:
-        pass
-
-    return None
 
 
 async def send_message(chat_arg: str, message: str, reply_to: int | None = None):

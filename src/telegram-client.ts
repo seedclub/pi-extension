@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const SESSION_PATH = join(homedir(), ".config", "seed-network", "telegram", "session.json");
+export const SESSION_PATH = join(homedir(), ".config", "seed-network", "telegram", "session.json");
 const SCRIPTS_DIR = join(__dirname, "..", "telegram", "scripts");
 
 export class TelegramNotConnectedError extends Error {

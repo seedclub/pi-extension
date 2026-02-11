@@ -17,37 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error, format_message
+from _client import get_client, output, error, format_message, resolve_chat, parse_date
 
 from telethon.errors import FloodWaitError
-from telethon.tl.types import User, Chat, Channel
-
-
-async def resolve_chat(client, chat_arg: str):
-    try:
-        chat_id = int(chat_arg)
-        return await client.get_entity(chat_id)
-    except (ValueError, Exception):
-        pass
-
-    if chat_arg.startswith("@"):
-        try:
-            return await client.get_entity(chat_arg)
-        except Exception:
-            pass
-
-    try:
-        dialogs = await client.get_dialogs(limit=200)
-        for d in dialogs:
-            if d.name and d.name.lower() == chat_arg.lower():
-                return d.entity
-        for d in dialogs:
-            if d.name and chat_arg.lower() in d.name.lower():
-                return d.entity
-    except Exception:
-        pass
-
-    return None
 
 
 async def export_history(
@@ -68,12 +40,7 @@ async def export_history(
         await client.disconnect()
         error(f"Chat not found: '{chat_arg}'", "CHAT_NOT_FOUND")
 
-    min_date = None
-    if since:
-        try:
-            min_date = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
-        except ValueError:
-            min_date = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    min_date = parse_date(since) if since else None
 
     chat_name = getattr(entity, "title", None) or getattr(entity, "first_name", None) or "Unknown"
 

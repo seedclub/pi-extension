@@ -51,7 +51,7 @@ def api_request(method: str, endpoint: str, body: dict | None = None) -> dict:
     )
 
     try:
-        with urlopen(req) as resp:
+        with urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode())
     except HTTPError as e:
         body_text = e.read().decode() if e.fp else ""

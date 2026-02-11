@@ -21,7 +21,7 @@ import { registerUtilityTools } from "./tools/utility";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
-import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir } from "./telegram-client";
+import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
 import { unlink } from "node:fs/promises";
 
 export default function (pi: ExtensionAPI) {
@@ -155,7 +155,7 @@ export default function (pi: ExtensionAPI) {
         // The script likely needs interactive input (verification code)
         // Fall back to CLI instructions
         ctx.ui.notify(
-          `Run this in your terminal to complete login:\n  cd ${cwd} && uv run scripts/login.py --api-id ${apiId} --api-hash ${apiHash.trim()} --phone ${phone.trim()}`,
+          `Run this in your terminal to complete login:\n  cd ${cwd} && uv run scripts/login.py --api-id ${apiId} --api-hash <your-api-hash> --phone ${phone.trim()}`,
           "warning"
         );
         return;
@@ -178,9 +178,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("telegram-logout", {
     description: "Disconnect from Telegram",
     handler: async (_args, ctx) => {
-      const sessionPath = `${process.env.HOME}/.config/seed-network/telegram/session.json`;
       try {
-        await unlink(sessionPath);
+        await unlink(TELEGRAM_SESSION_PATH);
         ctx.ui.setStatus("telegram", undefined);
         ctx.ui.notify("Logged out of Telegram", "info");
       } catch {

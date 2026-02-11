@@ -12,20 +12,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error
+from _client import get_client, output, error, classify_entity
 
-from telethon.tl.types import User, Chat, Channel
 from telethon.errors import FloodWaitError
-
-
-def classify_entity(entity) -> str:
-    if isinstance(entity, User):
-        return "bot" if entity.bot else "user"
-    elif isinstance(entity, Chat):
-        return "group"
-    elif isinstance(entity, Channel):
-        return "channel" if entity.broadcast else "supergroup"
-    return "unknown"
 
 
 async def list_unread(limit: int = 20, min_unread: int = 1):

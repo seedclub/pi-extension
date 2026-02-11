@@ -17,45 +17,11 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _client import get_client, output, error, format_sender
+from _client import get_client, output, error, format_sender, resolve_chat, classify_entity
 from _sync import sync_chats, sync_messages, api_request
 
 from telethon.tl.types import User, Chat, Channel
 from telethon.errors import FloodWaitError
-
-
-def classify_entity(entity) -> str:
-    if isinstance(entity, User):
-        return "bot" if entity.bot else "user"
-    elif isinstance(entity, Chat):
-        return "group"
-    elif isinstance(entity, Channel):
-        return "channel" if entity.broadcast else "supergroup"
-    return "unknown"
-
-
-async def resolve_chat(client, chat_arg: str):
-    try:
-        chat_id = int(chat_arg)
-        return await client.get_entity(chat_id)
-    except (ValueError, Exception):
-        pass
-    if chat_arg.startswith("@"):
-        try:
-            return await client.get_entity(chat_arg)
-        except Exception:
-            pass
-    try:
-        dialogs = await client.get_dialogs(limit=200)
-        for d in dialogs:
-            if d.name and d.name.lower() == chat_arg.lower():
-                return d.entity
-        for d in dialogs:
-            if d.name and chat_arg.lower() in d.name.lower():
-                return d.entity
-    except Exception:
-        pass
-    return None
 
 
 def format_msg_for_api(msg) -> dict:
@@ -144,7 +110,7 @@ async def do_sync(
             # Fall back to all groups/channels
             target_dialogs = [
                 (d.name, d.entity) for d in dialogs
-                if classify_entity(d) in ("supergroup", "group", "channel")
+                if classify_entity(d.entity) in ("supergroup", "group", "channel")
             ]
         else:
             enabled_ids = {
