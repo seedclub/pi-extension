@@ -352,6 +352,63 @@ async function telegramSync(args: { full?: boolean; chats?: string[]; limit?: nu
   return runTelegramScript(execFn!, "sync-all.py", scriptArgs, { timeout: 300000 });
 }
 
+// --- Leave Chat ---
+
+function renderLeaveChatCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_leave_chat "));
+  text += theme.fg("accent", args.chat || "");
+  if (args.delete) text += theme.fg("warning", " +delete history");
+  return new Text(text, 0, 0);
+}
+
+function renderLeaveChatResult(result: any, _opts: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  if (details?.cancelled) return new Text(theme.fg("warning", "✗ Cancelled"), 0, 0);
+  return new Text(theme.fg("success", `✓ ${details?.action || "Left"} ${details?.chat || "?"}`), 0, 0);
+}
+
+async function telegramLeaveChat(args: { chat: string; delete?: boolean }) {
+  if (!telegramSessionExists()) throw new TelegramNotConnectedError();
+  const scriptArgs: string[] = [args.chat];
+  if (args.delete) scriptArgs.push("--delete");
+  return runTelegramScript(execFn!, "leave_chat.py", scriptArgs, { timeout: 30000 });
+}
+
+// --- Create Group ---
+
+function renderCreateGroupCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_create_group "));
+  text += theme.fg("accent", `"${args.title || ""}"`);
+  if (args.users?.length) text += theme.fg("dim", ` with ${args.users.join(", ")}`);
+  return new Text(text, 0, 0);
+}
+
+function renderCreateGroupResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  if (details?.cancelled) return new Text(theme.fg("warning", "✗ Cancelled"), 0, 0);
+  let text = theme.fg("success", `✓ Created "${details?.title || "?"}"`);
+  if (details?.memberCount) text += theme.fg("dim", ` · ${details.memberCount} members`);
+  if (expanded && details?.members) {
+    for (const m of details.members) {
+      const username = m.username ? theme.fg("dim", ` @${m.username}`) : "";
+      text += "\n  " + theme.fg("accent", m.name) + username;
+    }
+  }
+  if (details?.firstMessage && !details.firstMessage.error) {
+    text += "\n  " + theme.fg("dim", `First message sent ✓`);
+  }
+  return new Text(text, 0, 0);
+}
+
+async function telegramCreateGroup(args: { title: string; users: string[]; message?: string }) {
+  if (!telegramSessionExists()) throw new TelegramNotConnectedError();
+  const scriptArgs: string[] = [args.title, "--users", ...args.users];
+  if (args.message) scriptArgs.push("--message", args.message);
+  return runTelegramScript(execFn!, "create_group.py", scriptArgs, { timeout: 60000 });
+}
+
 // --- Registration ---
 
 export function registerTelegramTools(pi: ExtensionAPI) {
@@ -459,6 +516,73 @@ export function registerTelegramTools(pi: ExtensionAPI) {
         const scriptArgs: string[] = [params.chat, params.message];
         if (params.replyTo) scriptArgs.push("--reply-to", String(params.replyTo));
         const result = await runTelegramScript(execFn!, "send.py", scriptArgs);
+        return jsonResult(result);
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "telegram_create_group",
+    label: "Telegram Create Group",
+    description: "Create a new Telegram group chat with specified users. Optionally send a first message. Users can be @usernames, numeric IDs, or contact names. Useful for introductions.",
+    parameters: Type.Object({
+      title: Type.String({ description: "Group chat title" }),
+      users: Type.Array(Type.String(), { description: "Users to add (@username, numeric ID, or contact name)" }),
+      message: Type.Optional(Type.String({ description: "First message to send in the group" })),
+    }),
+    renderCall: renderCreateGroupCall,
+    renderResult: renderCreateGroupResult,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      if (!telegramSessionExists()) return notConnectedResult();
+
+      const userList = params.users.join(", ");
+      const confirmMsg = `Title: ${params.title}\nMembers: ${userList}${params.message ? `\n\nFirst message: "${params.message}"` : ""}`;
+      const ok = await ctx.ui.confirm("Create Telegram Group", confirmMsg);
+      if (!ok) {
+        return {
+          content: [{ type: "text" as const, text: "Group creation cancelled by user." }],
+          details: { cancelled: true },
+        };
+      }
+
+      try {
+        const result = await telegramCreateGroup(params);
+        return jsonResult(result);
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "telegram_leave_chat",
+    label: "Telegram Leave Chat",
+    description: "Leave a Telegram group chat or channel. Optionally delete the chat history. Chat can be a name, @username, or numeric ID.",
+    parameters: Type.Object({
+      chat: Type.String({ description: "Chat name, @username, or numeric ID" }),
+      delete: Type.Optional(Type.Boolean({ description: "Also delete the chat history (default: false)" })),
+    }),
+    renderCall: renderLeaveChatCall,
+    renderResult: renderLeaveChatResult,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      if (!telegramSessionExists()) return notConnectedResult();
+
+      const deleteNote = params.delete ? " and delete all history" : "";
+      const ok = await ctx.ui.confirm(
+        "Leave Telegram Chat",
+        `Leave "${params.chat}"${deleteNote}?`
+      );
+      if (!ok) {
+        return {
+          content: [{ type: "text" as const, text: "Leave chat cancelled by user." }],
+          details: { cancelled: true },
+        };
+      }
+
+      try {
+        const result = await telegramLeaveChat(params);
         return jsonResult(result);
       } catch (e) {
         return errorResult(e);

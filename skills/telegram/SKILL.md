@@ -56,6 +56,21 @@ cd {baseDir}/.. && uv run scripts/send.py "<chat>" "<message>"
 cd {baseDir}/.. && uv run scripts/send.py "<chat>" "<message>" --reply-to 4521
 ```
 
+### Create a group chat
+
+```bash
+cd {baseDir}/.. && uv run scripts/create_group.py "<title>" --users <user1> <user2> [--message "<msg>"]
+```
+
+Users can be @usernames, numeric IDs, or contact names. Great for introductions.
+
+### Leave a chat
+
+```bash
+cd {baseDir}/.. && uv run scripts/leave_chat.py "<chat>"
+cd {baseDir}/.. && uv run scripts/leave_chat.py "<chat>" --delete
+```
+
 ### Chat info
 
 ```bash
