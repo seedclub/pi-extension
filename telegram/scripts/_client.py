@@ -1,5 +1,5 @@
 """
-Shared Telethon client initialization.
+Shared Telethon client initialization and utilities.
 All scripts import from here.
 
 Session is stored at ~/.config/seed-network/telegram/session.json
@@ -17,6 +17,10 @@ from telethon.sessions import StringSession
 SESSION_DIR = Path.home() / ".config" / "seed-network" / "telegram"
 SESSION_PATH = SESSION_DIR / "session.json"
 
+
+# =============================================================================
+# Session Management
+# =============================================================================
 
 def load_session() -> dict:
     """Load session from disk. Exits with error JSON if not found."""
@@ -42,7 +46,6 @@ def save_session(api_id: int, api_hash: str, phone: str, session_string: str):
         "authenticatedAt": __import__("datetime").datetime.now().isoformat(),
     }
     SESSION_PATH.write_text(json.dumps(data, indent=2))
-    # Restrict permissions
     SESSION_PATH.chmod(0o600)
 
 
@@ -57,6 +60,10 @@ def get_client() -> TelegramClient:
     return client
 
 
+# =============================================================================
+# Output Helpers
+# =============================================================================
+
 def output(data):
     """Print JSON to stdout and exit cleanly."""
     print(json.dumps(data, default=str, ensure_ascii=False))
@@ -69,10 +76,16 @@ def error(msg: str, code: str = "ERROR") -> NoReturn:
     sys.exit(1)
 
 
-async def resolve_chat(client, chat_arg: str):
-    """Resolve a chat argument (name, @username, or numeric ID) to a Telethon entity."""
-    from telethon.tl.types import User, Chat, Channel
+# =============================================================================
+# Chat Resolution
+# =============================================================================
 
+async def resolve_chat(client, chat_arg: str):
+    """
+    Resolve a chat argument to a Telethon entity.
+    Accepts: numeric ID, @username, or chat name (fuzzy matched).
+    Returns the entity or None.
+    """
     # Try as numeric ID
     try:
         chat_id = int(chat_arg)
@@ -87,20 +100,18 @@ async def resolve_chat(client, chat_arg: str):
         except Exception:
             pass
 
-    # Try as exact or fuzzy name match against dialogs
+    # Fuzzy match against dialogs
     try:
         dialogs = await client.get_dialogs(limit=200)
         # Exact match first
         for d in dialogs:
             if d.name and d.name.lower() == chat_arg.lower():
                 return d.entity
-
-        # Fuzzy: starts with
+        # Starts with
         for d in dialogs:
             if d.name and d.name.lower().startswith(chat_arg.lower()):
                 return d.entity
-
-        # Fuzzy: contains
+        # Contains
         for d in dialogs:
             if d.name and chat_arg.lower() in d.name.lower():
                 return d.entity
@@ -123,10 +134,13 @@ def classify_entity(entity) -> str:
     return "unknown"
 
 
+# =============================================================================
+# Date Parsing
+# =============================================================================
+
 def parse_date(date_str: str):
     """Parse an ISO 8601 or YYYY-MM-DD date string to a timezone-aware datetime."""
     from datetime import datetime, timezone
-
     try:
         return datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
     except ValueError:
@@ -136,7 +150,6 @@ def parse_date(date_str: str):
 def parse_date_end_of_day(date_str: str):
     """Parse a date string, setting time to end of day for date-only inputs."""
     from datetime import datetime, timezone
-
     try:
         return datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
     except ValueError:
@@ -144,6 +157,10 @@ def parse_date_end_of_day(date_str: str):
             tzinfo=timezone.utc, hour=23, minute=59, second=59
         )
 
+
+# =============================================================================
+# Formatters
+# =============================================================================
 
 def format_sender(sender) -> dict:
     """Format a Telethon User/Channel entity into a clean dict."""

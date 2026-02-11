@@ -23,6 +23,7 @@ import { getStoredToken, storeToken, getApiBase } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
 import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
 import { unlink } from "node:fs/promises";
+import { registerMirror } from "./mirror";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
@@ -35,6 +36,9 @@ export default function (pi: ExtensionAPI) {
   registerTwitterTools(pi);
   registerTelegramTools(pi);
   registerUtilityTools(pi);
+
+  // --- Session mirror (streams events to web app) ---
+  registerMirror(pi);
 
   // --- Commands ---
 

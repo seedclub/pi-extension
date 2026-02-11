@@ -1031,40 +1031,21 @@ These links are set manually via `telegram_link_chat` / `telegram_link_sender` t
 - The `syncEnabled` flag lets users exclude specific chats from sync (e.g., personal DMs).
 - Message content is stored in plaintext in Postgres. The same security posture as existing deal memos and research artifacts — protected by API auth, not encrypted at rest.
 
-### Updated Implementation Sequence
+### Implementation Status
 
-#### Phase 1: Core CLI (no DB)
-1. `_client.py`, `login.py`, `chats.py`, `read.py`
-2. `telegram-client.ts`, `tools/telegram.ts` (shells out to scripts)
-3. Test: agent reads messages live from Telegram
+All five phases are complete. Summary:
 
-#### Phase 2: Search & Triage (no DB)
-1. `search.py`, `unread.py`
-2. `telegram-digest.md` prompt template
-3. Test: `/telegram-digest` summarizes unread messages
+- **Phase 1 ✅** — `_client.py`, `login.py`, `logout.py`, `chats.py`, `read.py`, `telegram-client.ts`, `tools/telegram.ts` (8 tools with custom renderers)
+- **Phase 2 ✅** — `search.py`, `unread.py`, `send.py`, `info.py`, `contacts.py`, `history.py`, 3 prompt templates, SKILL.md
+- **Phase 3 ✅** — 3 DB tables (`telegram_chats`, `telegram_senders`, `telegram_messages` with FTS), 4 API route files
+- **Phase 4 ✅** — `--sync` flag on scripts, `_sync.py` helpers, `sync-all.py` orchestrator, `telegram_sync` tool
+- **Phase 5 ✅** — `/telegram-login` (phone-only, built-in app credentials), `/telegram-logout`, `/telegram-status`, `ctx.ui.confirm` on send, session start hook
 
-#### Phase 3: DB Schema & API Routes
-1. Add schema tables to `db/schema.ts`
-2. `GET /api/mcp/telegram/chats`
-3. `GET /api/mcp/telegram/messages` (with full-text search)
-4. `POST /api/mcp/telegram/messages` (bulk ingest)
-5. `POST /api/mcp/telegram/chats` (bulk upsert)
-6. `GET /api/mcp/telegram/senders`
-7. `GET /api/mcp/telegram/stats`
-8. `PATCH` routes for chat/sender settings
-
-#### Phase 4: Sync Pipeline
-1. Add `--sync` flag to `chats.py`, `read.py`
-2. Build `sync-all.py` orchestrator
-3. Switch pi tools from script→stdout to API queries
-4. `telegram_sync` tool
-5. Test: `sync-all.py` backfills a chat, agent queries from DB
-
-#### Phase 5: Auth Polish, Send & Linking
-1. `/telegram-login` command with `ctx.ui.input()` flow
-2. `send.py` + `telegram_send` with `ctx.ui.confirm()`
-3. `telegram_link_chat`, `telegram_link_sender` tools
-4. SKILL.md, remaining prompt templates
+#### Outstanding (not blocked, implement when needed)
+- Run DB migrations for the 3 new tables
+- Switch pi tools from live Telethon → DB API queries once sync pipeline is in use
+- `telegram_link_chat` / `telegram_link_sender` tools for entity linking
+- Background continuous sync (long-running Telethon event handler, separate from pi)
 
 ## Future Considerations
 
