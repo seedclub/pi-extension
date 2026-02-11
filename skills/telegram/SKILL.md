@@ -14,6 +14,10 @@ via bash only for advanced operations the tools don't cover.
 
 ## Setup (one-time)
 
+1. Get API credentials at https://my.telegram.org/apps
+2. Set env vars `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, or provide via CLI args
+3. Run the login command:
+
 ```bash
 /telegram-login
 ```
@@ -22,7 +26,7 @@ Or directly via CLI:
 
 ```bash
 cd {baseDir}/..
-uv run scripts/login.py
+TELEGRAM_API_ID=12345 TELEGRAM_API_HASH=abc123 uv run scripts/login.py
 ```
 
 ## Scripts

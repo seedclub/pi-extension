@@ -124,13 +124,12 @@ export default function (pi: ExtensionAPI) {
       const phone = await ctx.ui.input("Phone number:", "+1234567890");
       if (!phone) { ctx.ui.notify("Cancelled", "info"); return; }
 
-      // login.py has built-in app credentials — just needs the phone number.
-      // It will prompt for verification code on stdin, which pi.exec can't pipe,
-      // so we direct the user to complete in terminal.
+      // login.py reads API credentials from TELEGRAM_API_ID / TELEGRAM_API_HASH env vars,
+      // or prompts interactively. Get credentials at https://my.telegram.org/apps
       const cwd = getTelegramDir();
 
       ctx.ui.notify(
-        `Complete login in your terminal (Telegram will send a code to your app):\n\n  cd ${cwd} && uv run scripts/login.py --phone ${phone.trim()}\n\nThen run /reload here to pick up the session.`,
+        `Complete login in your terminal:\n\n  cd ${cwd} && TELEGRAM_API_ID=<your_id> TELEGRAM_API_HASH=<your_hash> uv run scripts/login.py --phone ${phone.trim()}\n\nGet API credentials at https://my.telegram.org/apps\nThen run /reload here to pick up the session.`,
         "info"
       );
     },
