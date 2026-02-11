@@ -16,10 +16,13 @@ import { registerResearchTools } from "./tools/research";
 import { registerEnrichmentTools } from "./tools/enrichments";
 import { registerEventTools } from "./tools/events";
 import { registerTwitterTools } from "./tools/twitter";
+import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
+import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir } from "./telegram-client";
+import { unlink } from "node:fs/promises";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
@@ -30,6 +33,7 @@ export default function (pi: ExtensionAPI) {
   registerEnrichmentTools(pi);
   registerEventTools(pi);
   registerTwitterTools(pi);
+  registerTelegramTools(pi);
   registerUtilityTools(pi);
 
   // --- Commands ---
@@ -96,6 +100,108 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // --- Telegram Commands ---
+
+  pi.registerCommand("telegram-login", {
+    description: "Connect to Telegram (interactive auth flow)",
+    handler: async (_args, ctx) => {
+      // Check if already connected
+      if (telegramSessionExists()) {
+        const session = await loadTelegramSession();
+        if (session) {
+          const keep = await ctx.ui.confirm(
+            "Already Connected",
+            `You're already connected to Telegram (${session.phone}). Re-authenticate?`
+          );
+          if (!keep) return;
+        }
+      }
+
+      // Collect credentials
+      const apiIdStr = await ctx.ui.input("Telegram API ID:", "Get from my.telegram.org/apps");
+      if (!apiIdStr) { ctx.ui.notify("Cancelled", "info"); return; }
+      const apiId = parseInt(apiIdStr.trim());
+      if (isNaN(apiId)) { ctx.ui.notify("Invalid API ID", "error"); return; }
+
+      const apiHash = await ctx.ui.input("Telegram API Hash:");
+      if (!apiHash) { ctx.ui.notify("Cancelled", "info"); return; }
+
+      const phone = await ctx.ui.input("Phone number:", "+1234567890");
+      if (!phone) { ctx.ui.notify("Cancelled", "info"); return; }
+
+      ctx.ui.notify("Sending verification code...", "info");
+
+      // Run login.py with --code-stdin so we can pipe the code
+      const scriptPath = getScriptPath("login.py");
+      const cwd = getTelegramDir();
+
+      // First pass: send the code request
+      // We use a two-step approach since pi.exec doesn't support stdin piping.
+      // Step 1: Run login with args, it will prompt for code on stdin
+      // Since we can't pipe stdin with pi.exec, we run login.py in CLI mode
+      // and use a temporary file approach.
+
+      // Actually, the simplest approach: write a small wrapper that takes all args
+      const result = await pi.exec("uv", [
+        "run", "--project", cwd, scriptPath,
+        "--api-id", String(apiId),
+        "--api-hash", apiHash.trim(),
+        "--phone", phone.trim(),
+      ], { timeout: 120000, cwd });
+
+      // If the script exits waiting for code, it means we need the interactive flow.
+      // For v1, instruct user to run login.py directly.
+      if (result.code !== 0) {
+        // The script likely needs interactive input (verification code)
+        // Fall back to CLI instructions
+        ctx.ui.notify(
+          `Run this in your terminal to complete login:\n  cd ${cwd} && uv run scripts/login.py --api-id ${apiId} --api-hash ${apiHash.trim()} --phone ${phone.trim()}`,
+          "warning"
+        );
+        return;
+      }
+
+      try {
+        const output = JSON.parse(result.stdout.trim().split("\n").pop()!);
+        if (output.success) {
+          ctx.ui.notify(`✓ Connected to Telegram as ${output.name || output.phone}`, "success");
+          ctx.ui.setStatus("telegram", `📱 ${output.phone}`);
+        } else if (output.error) {
+          ctx.ui.notify(`Telegram auth failed: ${output.error}`, "error");
+        }
+      } catch {
+        ctx.ui.notify("Auth completed but couldn't parse result. Check /telegram-status", "warning");
+      }
+    },
+  });
+
+  pi.registerCommand("telegram-logout", {
+    description: "Disconnect from Telegram",
+    handler: async (_args, ctx) => {
+      const sessionPath = `${process.env.HOME}/.config/seed-network/telegram/session.json`;
+      try {
+        await unlink(sessionPath);
+        ctx.ui.setStatus("telegram", undefined);
+        ctx.ui.notify("Logged out of Telegram", "info");
+      } catch {
+        ctx.ui.notify("No Telegram session found", "info");
+      }
+    },
+  });
+
+  pi.registerCommand("telegram-status", {
+    description: "Check Telegram connection status",
+    handler: async (_args, ctx) => {
+      const session = await loadTelegramSession();
+      if (session) {
+        const phone = session.phone.replace(/(\d{3})\d+(\d{3})/, "$1***$2");
+        ctx.ui.notify(`📱 Connected as ${phone} (since ${session.authenticatedAt?.split("T")[0] || "unknown"})`, "info");
+      } else {
+        ctx.ui.notify("Not connected to Telegram. Run /telegram-login", "warning");
+      }
+    },
+  });
+
   // --- Show connection status on session start ---
 
   pi.on("session_start", async (_event, ctx) => {
@@ -104,6 +210,15 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.setStatus("seed", `🌱 ${stored.email}`);
     } else if (process.env.SEED_NETWORK_TOKEN) {
       ctx.ui.setStatus("seed", "🌱 Connected (env)");
+    }
+
+    // Telegram status
+    if (telegramSessionExists()) {
+      const session = await loadTelegramSession();
+      if (session) {
+        const phone = session.phone.replace(/(\d{3})\d+(\d{3})/, "$1***$2");
+        ctx.ui.setStatus("telegram", `📱 ${phone}`);
+      }
     }
   });
 
