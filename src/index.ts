@@ -117,61 +117,18 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      // Collect credentials
-      const apiIdStr = await ctx.ui.input("Telegram API ID:", "Get from my.telegram.org/apps");
-      if (!apiIdStr) { ctx.ui.notify("Cancelled", "info"); return; }
-      const apiId = parseInt(apiIdStr.trim());
-      if (isNaN(apiId)) { ctx.ui.notify("Invalid API ID", "error"); return; }
-
-      const apiHash = await ctx.ui.input("Telegram API Hash:");
-      if (!apiHash) { ctx.ui.notify("Cancelled", "info"); return; }
-
       const phone = await ctx.ui.input("Phone number:", "+1234567890");
       if (!phone) { ctx.ui.notify("Cancelled", "info"); return; }
 
-      ctx.ui.notify("Sending verification code...", "info");
-
-      // Run login.py with --code-stdin so we can pipe the code
-      const scriptPath = getScriptPath("login.py");
+      // login.py has built-in app credentials — just needs the phone number.
+      // It will prompt for verification code on stdin, which pi.exec can't pipe,
+      // so we direct the user to complete in terminal.
       const cwd = getTelegramDir();
 
-      // First pass: send the code request
-      // We use a two-step approach since pi.exec doesn't support stdin piping.
-      // Step 1: Run login with args, it will prompt for code on stdin
-      // Since we can't pipe stdin with pi.exec, we run login.py in CLI mode
-      // and use a temporary file approach.
-
-      // Actually, the simplest approach: write a small wrapper that takes all args
-      const result = await pi.exec("uv", [
-        "run", "--project", cwd, scriptPath,
-        "--api-id", String(apiId),
-        "--api-hash", apiHash.trim(),
-        "--phone", phone.trim(),
-      ], { timeout: 120000, cwd });
-
-      // If the script exits waiting for code, it means we need the interactive flow.
-      // For v1, instruct user to run login.py directly.
-      if (result.code !== 0) {
-        // The script likely needs interactive input (verification code)
-        // Fall back to CLI instructions
-        ctx.ui.notify(
-          `Run this in your terminal to complete login:\n  cd ${cwd} && uv run scripts/login.py --api-id ${apiId} --api-hash <your-api-hash> --phone ${phone.trim()}`,
-          "warning"
-        );
-        return;
-      }
-
-      try {
-        const output = JSON.parse(result.stdout.trim().split("\n").pop()!);
-        if (output.success) {
-          ctx.ui.notify(`✓ Connected to Telegram as ${output.name || output.phone}`, "success");
-          ctx.ui.setStatus("telegram", `📱 ${output.phone}`);
-        } else if (output.error) {
-          ctx.ui.notify(`Telegram auth failed: ${output.error}`, "error");
-        }
-      } catch {
-        ctx.ui.notify("Auth completed but couldn't parse result. Check /telegram-status", "warning");
-      }
+      ctx.ui.notify(
+        `Complete login in your terminal (Telegram will send a code to your app):\n\n  cd ${cwd} && uv run scripts/login.py --phone ${phone.trim()}\n\nThen run /reload here to pick up the session.`,
+        "info"
+      );
     },
   });
 

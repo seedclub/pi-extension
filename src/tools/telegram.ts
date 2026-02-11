@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
+import { Text } from "@mariozechner/pi-tui";
 import {
   telegramSessionExists,
   runTelegramScript,
@@ -38,6 +39,186 @@ function jsonResult(data: any) {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
     details: data,
   };
+}
+
+// --- Renderers ---
+
+function renderError(details: any, theme: any): Text {
+  return new Text(theme.fg("error", `✗ ${details?.error || "Unknown error"}`), 0, 0);
+}
+
+function renderChatsCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_chats"));
+  if (args.type && args.type !== "all") text += " " + theme.fg("muted", args.type);
+  if (args.limit) text += theme.fg("dim", ` (limit: ${args.limit})`);
+  return new Text(text, 0, 0);
+}
+
+function renderChatsResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  const chats = details?.chats || [];
+  let text = theme.fg("success", `✓ ${chats.length} chats`);
+  if (expanded) {
+    for (const c of chats) {
+      const unread = c.unreadCount ? theme.fg("warning", ` (${c.unreadCount} unread)`) : "";
+      const type = theme.fg("dim", ` [${c.type}]`);
+      text += "\n  " + theme.fg("accent", c.name) + type + unread;
+    }
+  } else if (chats.length > 0) {
+    const preview = chats.slice(0, 5).map((c: any) => c.name).join(", ");
+    const more = chats.length > 5 ? ` +${chats.length - 5} more` : "";
+    text += theme.fg("dim", ` — ${preview}${more}`);
+  }
+  return new Text(text, 0, 0);
+}
+
+function renderReadCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_read "));
+  text += theme.fg("accent", args.chat || "");
+  if (args.limit) text += theme.fg("dim", ` (${args.limit})`);
+  if (args.since) text += theme.fg("dim", ` since ${args.since}`);
+  return new Text(text, 0, 0);
+}
+
+function renderMessagesResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  const messages = details?.messages || [];
+  const chatName = details?.chat?.name;
+  let text = theme.fg("success", `✓ ${messages.length} messages`);
+  if (chatName) text += theme.fg("dim", ` from ${chatName}`);
+  if (expanded) {
+    for (const m of messages) {
+      const sender = m.sender?.name || m.sender?.username || "?";
+      const msgText = (m.text || "[media]").slice(0, 120);
+      const date = m.date ? new Date(m.date).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      text += "\n  " + theme.fg("accent", sender) + theme.fg("dim", ` ${date}`) + "\n    " + msgText;
+    }
+  } else if (messages.length > 0) {
+    // Show last message preview
+    const last = messages[0];
+    const sender = last?.sender?.name || last?.sender?.username || "?";
+    const preview = (last?.text || "[media]").slice(0, 80);
+    text += theme.fg("dim", ` — ${sender}: ${preview}`);
+  }
+  return new Text(text, 0, 0);
+}
+
+function renderSearchCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_search "));
+  text += theme.fg("accent", `"${args.query || ""}"`);
+  if (args.chat) text += theme.fg("dim", ` in ${args.chat}`);
+  return new Text(text, 0, 0);
+}
+
+function renderUnreadCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_unread"));
+  if (args.minUnread) text += theme.fg("dim", ` (min: ${args.minUnread})`);
+  return new Text(text, 0, 0);
+}
+
+function renderUnreadResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  const chats = details?.chats || [];
+  const total = details?.totalUnread || 0;
+  let text = theme.fg("success", `✓ ${total} unread`) + theme.fg("dim", ` across ${chats.length} chats`);
+  if (expanded || chats.length <= 10) {
+    for (const c of chats) {
+      const mentions = c.mentionCount ? theme.fg("error", ` @${c.mentionCount}`) : "";
+      text += "\n  " + theme.fg("warning", `${c.unreadCount}`) + " " + theme.fg("accent", c.name) + mentions;
+    }
+  } else {
+    const top = chats.slice(0, 5);
+    for (const c of top) {
+      text += "\n  " + theme.fg("warning", `${c.unreadCount}`) + " " + theme.fg("accent", c.name);
+    }
+    text += theme.fg("dim", `\n  +${chats.length - 5} more`);
+  }
+  return new Text(text, 0, 0);
+}
+
+function renderInfoCall(args: any, theme: any): Text {
+  return new Text(
+    theme.fg("toolTitle", theme.bold("telegram_info ")) + theme.fg("accent", args.chat || ""),
+    0, 0
+  );
+}
+
+function renderInfoResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  let text = theme.fg("success", `✓ ${details?.name || "?"}`);
+  text += theme.fg("dim", ` [${details?.type || "?"}]`);
+  if (details?.memberCount) text += theme.fg("dim", ` · ${details.memberCount} members`);
+  if (expanded) {
+    if (details?.description) text += "\n  " + theme.fg("dim", details.description.slice(0, 200));
+    if (details?.username) text += "\n  " + theme.fg("accent", `@${details.username}`);
+    const members = details?.members || [];
+    if (members.length > 0) {
+      text += "\n  " + theme.fg("dim", `Members: ${members.slice(0, 10).map((m: any) => m.name).join(", ")}`);
+      if (members.length > 10) text += theme.fg("dim", ` +${members.length - 10} more`);
+    }
+  }
+  return new Text(text, 0, 0);
+}
+
+function renderSendCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_send "));
+  text += theme.fg("accent", args.chat || "");
+  text += theme.fg("dim", ` "${(args.message || "").slice(0, 60)}${(args.message || "").length > 60 ? "..." : ""}"`);
+  return new Text(text, 0, 0);
+}
+
+function renderSendResult(result: any, _opts: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  if (details?.cancelled) return new Text(theme.fg("warning", "✗ Cancelled"), 0, 0);
+  return new Text(theme.fg("success", `✓ Sent to ${details?.chat || "?"}`), 0, 0);
+}
+
+function renderContactsCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_contacts"));
+  if (args.search) text += " " + theme.fg("accent", `"${args.search}"`);
+  return new Text(text, 0, 0);
+}
+
+function renderContactsResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  const contacts = details?.contacts || [];
+  let text = theme.fg("success", `✓ ${contacts.length} contacts`);
+  if (expanded) {
+    for (const c of contacts) {
+      const username = c.username ? theme.fg("dim", ` @${c.username}`) : "";
+      text += "\n  " + theme.fg("accent", c.name) + username;
+    }
+  } else if (contacts.length > 0) {
+    const preview = contacts.slice(0, 5).map((c: any) => c.name).join(", ");
+    text += theme.fg("dim", ` — ${preview}${contacts.length > 5 ? ` +${contacts.length - 5} more` : ""}`);
+  }
+  return new Text(text, 0, 0);
+}
+
+function renderSyncCall(args: any, theme: any): Text {
+  let text = theme.fg("toolTitle", theme.bold("telegram_sync"));
+  if (args.full) text += theme.fg("warning", " --full");
+  if (args.chats?.length) text += theme.fg("dim", ` (${args.chats.join(", ")})`);
+  return new Text(text, 0, 0);
+}
+
+function renderSyncResult(result: any, { expanded }: any, theme: any): Text {
+  const details = result.details;
+  if (details?.error) return renderError(details, theme);
+  let text = theme.fg("success", `✓ Synced ${details?.messagesSynced || 0} messages`);
+  if (details?.chatsSynced) text += theme.fg("dim", ` across ${details.chatsSynced} chats`);
+  if (expanded && details?.chatDetails) {
+    for (const c of details.chatDetails) {
+      text += "\n  " + theme.fg("accent", c.chat) + theme.fg("dim", ` — ${c.created} new, ${c.updated} updated, ${c.skipped} skipped`);
+    }
+  }
+  return new Text(text, 0, 0);
 }
 
 // --- Tool Handlers ---
@@ -98,8 +279,6 @@ async function telegramContacts(args: { search?: string }) {
   return runTelegramScript(execFn!, "contacts.py", scriptArgs);
 }
 
-// --- API-backed handlers (for DB-powered tools) ---
-
 async function telegramSync(args: { full?: boolean; chats?: string[]; limit?: number }) {
   if (!telegramSessionExists()) throw new TelegramNotConnectedError();
   const scriptArgs: string[] = [];
@@ -129,6 +308,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       })),
       archived: Type.Optional(Type.Boolean({ description: "Include archived chats" })),
     }),
+    renderCall: renderChatsCall,
+    renderResult: renderChatsResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramChats(params);
@@ -152,6 +333,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       until: Type.Optional(Type.String({ description: "Only messages before this date" })),
       fromUser: Type.Optional(Type.String({ description: "Filter by sender (@username or user ID)" })),
     }),
+    renderCall: renderReadCall,
+    renderResult: renderMessagesResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramRead(params);
@@ -174,6 +357,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       fromUser: Type.Optional(Type.String({ description: "Filter by sender" })),
       since: Type.Optional(Type.String({ description: "Only messages after this date" })),
     }),
+    renderCall: renderSearchCall,
+    renderResult: renderMessagesResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramSearch(params);
@@ -194,10 +379,11 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       message: Type.String({ description: "Message text to send" }),
       replyTo: Type.Optional(Type.Number({ description: "Message ID to reply to" })),
     }),
+    renderCall: renderSendCall,
+    renderResult: renderSendResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!telegramSessionExists()) return notConnectedResult();
 
-      // Require user confirmation before sending
       const ok = await ctx.ui.confirm(
         "Send Telegram Message",
         `To: ${params.chat}\n\n${params.message}${params.replyTo ? `\n\n(reply to #${params.replyTo})` : ""}`
@@ -228,6 +414,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       limit: Type.Optional(Type.Number({ description: "Max chats to return (default: 20)" })),
       minUnread: Type.Optional(Type.Number({ description: "Minimum unread count to include (default: 1)" })),
     }),
+    renderCall: renderUnreadCall,
+    renderResult: renderUnreadResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramUnread(params);
@@ -246,6 +434,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     parameters: Type.Object({
       chat: Type.String({ description: "Chat name, @username, or numeric ID" }),
     }),
+    renderCall: renderInfoCall,
+    renderResult: renderInfoResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramInfo(params);
@@ -264,6 +454,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     parameters: Type.Object({
       search: Type.Optional(Type.String({ description: "Search contacts by name or username" })),
     }),
+    renderCall: renderContactsCall,
+    renderResult: renderContactsResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         const result = await telegramContacts(params);
@@ -284,6 +476,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       chats: Type.Optional(Type.Array(Type.String(), { description: "Sync specific chat names only" })),
       limit: Type.Optional(Type.Number({ description: "Messages per chat (default: 200)" })),
     }),
+    renderCall: renderSyncCall,
+    renderResult: renderSyncResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         onUpdate?.({

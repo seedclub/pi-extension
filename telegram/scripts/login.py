@@ -4,15 +4,17 @@ Authenticate with Telegram and save session.
 
 Usage:
   uv run scripts/login.py
+  uv run scripts/login.py --phone +1234567890
   uv run scripts/login.py --api-id 12345 --api-hash abc123 --phone +1234567890
 
-When called without args, prompts interactively.
+When called without --api-id/--api-hash, uses the built-in Seed Network app credentials.
 When called with --code-stdin, reads verification code from stdin (for pi extension).
 """
 
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -29,6 +31,11 @@ from telethon.errors import (
     FloodWaitError,
     PhoneNumberInvalidError,
 )
+
+# Telegram API credentials — required via environment variables or CLI args.
+# Get yours at https://my.telegram.org/apps
+DEFAULT_API_ID = int(os.environ.get("TELEGRAM_API_ID", "0"))
+DEFAULT_API_HASH = os.environ.get("TELEGRAM_API_HASH", "")
 
 
 async def do_login(api_id: int, api_hash: str, phone: str, code_stdin: bool = False):
@@ -108,16 +115,16 @@ async def do_login(api_id: int, api_hash: str, phone: str, code_stdin: bool = Fa
 
 def main():
     parser = argparse.ArgumentParser(description="Authenticate with Telegram")
-    parser.add_argument("--api-id", type=int, help="Telegram API ID from my.telegram.org")
-    parser.add_argument("--api-hash", type=str, help="Telegram API Hash from my.telegram.org")
+    parser.add_argument("--api-id", type=int, help="Telegram API ID (default: built-in)")
+    parser.add_argument("--api-hash", type=str, help="Telegram API Hash (default: built-in)")
     parser.add_argument("--phone", type=str, help="Phone number in international format (+1234567890)")
     parser.add_argument("--code-stdin", action="store_true", help="Read verification code from stdin (for automation)")
     args = parser.parse_args()
 
-    api_id = args.api_id
-    api_hash = args.api_hash
-    phone = args.phone
+    api_id = args.api_id or DEFAULT_API_ID
+    api_hash = args.api_hash or DEFAULT_API_HASH
 
+    # If no built-in credentials and none provided, prompt
     if not api_id:
         try:
             api_id = int(input("Enter your API ID (from my.telegram.org/apps): ").strip())
@@ -129,6 +136,7 @@ def main():
         if not api_hash:
             error("API Hash is required", "INVALID_INPUT")
 
+    phone = args.phone
     if not phone:
         phone = input("Enter your phone number (e.g. +1234567890): ").strip()
         if not phone:
