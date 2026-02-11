@@ -93,27 +93,38 @@ async def resolve_chat(client, chat_arg: str):
     except (ValueError, Exception):
         pass
 
-    # Try as @username
-    if chat_arg.startswith("@"):
-        try:
-            return await client.get_entity(chat_arg)
-        except Exception:
-            pass
+    # Try as @username (with or without @ prefix)
+    username = chat_arg if chat_arg.startswith("@") else f"@{chat_arg}"
+    try:
+        return await client.get_entity(username)
+    except Exception:
+        pass
 
     # Fuzzy match against dialogs
     try:
         dialogs = await client.get_dialogs(limit=200)
-        # Exact match first
+        chat_lower = chat_arg.lower()
+
+        # Exact match on name or username first
         for d in dialogs:
-            if d.name and d.name.lower() == chat_arg.lower():
+            entity_username = getattr(d.entity, "username", None)
+            if d.name and d.name.lower() == chat_lower:
                 return d.entity
-        # Starts with
-        for d in dialogs:
-            if d.name and d.name.lower().startswith(chat_arg.lower()):
+            if entity_username and entity_username.lower() == chat_lower:
                 return d.entity
-        # Contains
+        # Starts with (name or username)
         for d in dialogs:
-            if d.name and chat_arg.lower() in d.name.lower():
+            entity_username = getattr(d.entity, "username", None)
+            if d.name and d.name.lower().startswith(chat_lower):
+                return d.entity
+            if entity_username and entity_username.lower().startswith(chat_lower):
+                return d.entity
+        # Contains (name or username)
+        for d in dialogs:
+            entity_username = getattr(d.entity, "username", None)
+            if d.name and chat_lower in d.name.lower():
+                return d.entity
+            if entity_username and chat_lower in entity_username.lower():
                 return d.entity
     except Exception:
         pass
