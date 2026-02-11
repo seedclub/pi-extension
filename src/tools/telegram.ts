@@ -201,26 +201,6 @@ function renderContactsResult(result: any, { expanded }: any, theme: any): Text 
   return new Text(text, 0, 0);
 }
 
-function renderSyncCall(args: any, theme: any): Text {
-  let text = theme.fg("toolTitle", theme.bold("telegram_sync"));
-  if (args.full) text += theme.fg("warning", " --full");
-  if (args.chats?.length) text += theme.fg("dim", ` (${args.chats.join(", ")})`);
-  return new Text(text, 0, 0);
-}
-
-function renderSyncResult(result: any, { expanded }: any, theme: any): Text {
-  const details = result.details;
-  if (details?.error) return renderError(details, theme);
-  let text = theme.fg("success", `✓ Synced ${details?.messagesSynced || 0} messages`);
-  if (details?.chatsSynced) text += theme.fg("dim", ` across ${details.chatsSynced} chats`);
-  if (expanded && details?.chatDetails) {
-    for (const c of details.chatDetails) {
-      text += "\n  " + theme.fg("accent", c.chat) + theme.fg("dim", ` — ${c.created} new, ${c.updated} updated, ${c.skipped} skipped`);
-    }
-  }
-  return new Text(text, 0, 0);
-}
-
 function renderDigestCall(args: any, theme: any): Text {
   let text = theme.fg("toolTitle", theme.bold("telegram_digest"));
   if (args.chats?.length) text += theme.fg("dim", ` (${args.chats.join(", ")})`);
@@ -339,18 +319,6 @@ async function telegramDigest(args: { chats?: string[]; limit?: number; includeR
   return runTelegramScript(execFn!, "digest.py", scriptArgs, { timeout: 120000 });
 }
 
-async function telegramSync(args: { full?: boolean; chats?: string[]; limit?: number }) {
-  if (!telegramSessionExists()) throw new TelegramNotConnectedError();
-  const scriptArgs: string[] = [];
-  if (args.full) scriptArgs.push("--full");
-  if (args.limit) scriptArgs.push("--limit", String(args.limit));
-  if (args.chats) {
-    for (const chat of args.chats) {
-      scriptArgs.push("--chat", chat);
-    }
-  }
-  return runTelegramScript(execFn!, "sync-all.py", scriptArgs, { timeout: 300000 });
-}
 
 // --- Leave Chat ---
 
@@ -677,28 +645,4 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
-    name: "telegram_sync",
-    label: "Telegram Sync",
-    description: "Sync Telegram chats and messages to the Seed Network database. Run this to populate the DB for fast querying. Requires both Telegram and Seed Network connections.",
-    parameters: Type.Object({
-      full: Type.Optional(Type.Boolean({ description: "Full backfill (default: incremental, recent messages only)" })),
-      chats: Type.Optional(Type.Array(Type.String(), { description: "Sync specific chat names only" })),
-      limit: Type.Optional(Type.Number({ description: "Messages per chat (default: 200)" })),
-    }),
-    renderCall: renderSyncCall,
-    renderResult: renderSyncResult,
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      try {
-        onUpdate?.({
-          content: [{ type: "text" as const, text: "Syncing Telegram messages to Seed Network..." }],
-        });
-        const result = await telegramSync(params);
-        return jsonResult(result);
-      } catch (e) {
-        if (e instanceof TelegramNotConnectedError) return notConnectedResult();
-        return errorResult(e);
-      }
-    },
-  });
 }
