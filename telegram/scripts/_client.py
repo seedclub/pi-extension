@@ -150,12 +150,11 @@ def parse_date(date_str: str):
 def parse_date_end_of_day(date_str: str):
     """Parse a date string, setting time to end of day for date-only inputs."""
     from datetime import datetime, timezone
-    try:
-        return datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
-    except ValueError:
-        return datetime.strptime(date_str, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc, hour=23, minute=59, second=59
-        )
+    dt = parse_date(date_str)
+    # If only a date was given (no time component), set to end of day
+    if "T" not in date_str and " " not in date_str:
+        return dt.replace(hour=23, minute=59, second=59)
+    return dt
 
 
 # =============================================================================
