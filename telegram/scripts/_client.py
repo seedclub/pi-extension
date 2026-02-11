@@ -86,11 +86,22 @@ async def resolve_chat(client, chat_arg: str):
     Accepts: numeric ID, @username, or chat name (fuzzy matched).
     Returns the entity or None.
     """
-    # Try as numeric ID
+    # Try as numeric ID (also try common Telegram ID prefixes for groups/channels)
     try:
         chat_id = int(chat_arg)
-        return await client.get_entity(chat_id)
-    except (ValueError, Exception):
+        # Try the ID as-is first
+        try:
+            return await client.get_entity(chat_id)
+        except Exception:
+            pass
+        # For positive IDs, try as group (-id) and supergroup/channel (-100id)
+        if chat_id > 0:
+            for prefixed in [-chat_id, int(f"-100{chat_id}")]:
+                try:
+                    return await client.get_entity(prefixed)
+                except Exception:
+                    pass
+    except ValueError:
         pass
 
     # Try as @username (with or without @ prefix)
