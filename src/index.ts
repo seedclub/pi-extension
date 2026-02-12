@@ -38,7 +38,9 @@ export default function (pi: ExtensionAPI) {
   registerUtilityTools(pi);
 
   // --- Session mirror (streams events to web app) ---
-  registerMirror(pi);
+  registerMirror(pi).catch(() => {
+    // Mirror is non-critical — don't break the extension if it fails
+  });
 
   // --- Commands ---
 

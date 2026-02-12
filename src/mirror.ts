@@ -2,17 +2,24 @@
  * Pi Session Mirror — connects outbound to a WebSocket relay server,
  * streaming all session events in real-time.
  *
- * The relay runs on Railway/Fly/etc. Browsers connect to the same relay
+ * The relay runs on Railway. Browsers connect to the same relay
  * to receive the events. Full bidirectional WebSocket, zero polling.
  *
- * Environment variables:
- *   PI_MIRROR_URL     - Relay WebSocket URL (default: ws://localhost:3100)
- *   PI_MIRROR_TOKEN   - Auth token (should match relay's PI_MIRROR_TOKEN)
- *   PI_MIRROR_SESSION - Session grouping key (default: "default")
+ * Config resolution:
+ *   1. Relay URL: PI_MIRROR_URL env var, or hardcoded default
+ *   2. Auth token: PI_MIRROR_TOKEN env var, or Seed Network stored token
+ *   3. Session key: PI_MIRROR_SESSION env var, or "default"
+ *
+ * For end users, no env vars needed — the relay URL is a known constant
+ * and the auth token comes from /seed-connect credentials.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { WebSocket } from "ws";
+import { getToken } from "./auth";
+import { getCurrentUser } from "./tools/utility";
+
+const DEFAULT_RELAY_URL = "wss://websocket-relay-production-a818.up.railway.app";
 
 interface MirrorEvent {
   type: string;
@@ -21,10 +28,25 @@ interface MirrorEvent {
   payload: Record<string, unknown>;
 }
 
-export function registerMirror(pi: ExtensionAPI) {
-  const relayUrl = process.env.PI_MIRROR_URL || "ws://localhost:3100";
-  const token = process.env.PI_MIRROR_TOKEN || "";
-  const mirrorSession = process.env.PI_MIRROR_SESSION || "default";
+export async function registerMirror(pi: ExtensionAPI) {
+  const relayUrl = process.env.PI_MIRROR_URL || DEFAULT_RELAY_URL;
+  const token = process.env.PI_MIRROR_TOKEN || (await getToken()) || "";
+
+  // Use seed network user ID as session key so each user gets their own channel.
+  // Falls back to PI_MIRROR_SESSION env var or "default" for local dev.
+  let mirrorSession = process.env.PI_MIRROR_SESSION || "default";
+  if (!process.env.PI_MIRROR_SESSION) {
+    try {
+      const user = await getCurrentUser();
+      if ("id" in user && user.id) {
+        mirrorSession = user.id;
+      }
+    } catch {
+      // Not connected to seed network — use default
+    }
+  }
+
+
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,7 +93,6 @@ export function registerMirror(pi: ExtensionAPI) {
 
       ws.on("error", () => {
         connected = false;
-        // error event prevents unhandled exception; close event handles reconnect
       });
     } catch {
       scheduleReconnect();
