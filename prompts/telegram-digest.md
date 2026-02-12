@@ -1,12 +1,13 @@
 # Telegram Digest
 
-Run my daily Telegram digest.
+Run my daily Telegram digest and surface action items in the webapp.
 
 ## Steps
 
 1. Call `telegram_digest` to fetch all new messages since the last digest
 2. If there are no new messages, say so and stop
 3. Analyze all messages and produce the structured digest below
+4. For any 🔴 Action Items, 🟡 Follow-ups, or 🔵 Intro Requests identified, call `create_action_items` to push them to the webapp so the user can approve/dismiss them from `/feed`
 
 ## Output Format
 

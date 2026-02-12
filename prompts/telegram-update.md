@@ -6,7 +6,7 @@ Process Telegram messages and surface action items in the webapp, then execute a
 
 First, check if there are any previously-approved action items waiting for execution.
 
-1. Call `poll_action_responses` to get all unacknowledged user responses
+1. Call `poll_action_responses` (with `acknowledge: false`) to get all unacknowledged user responses
 2. For each response:
 
 **Approved** — Execute the action described in `agentCommand.prompt` (or use `agentCommand.tool` + `agentCommand.args` if specified):
@@ -19,6 +19,7 @@ First, check if there are any previously-approved action items waiting for execu
 **Custom Response** — Read `userResponse` and execute according to their instruction instead of the original suggestion.
 
 3. If an approved action seems risky or unclear, mention it in the summary rather than executing blindly.
+4. **After successfully executing each action**, call `acknowledge_actions` with the IDs of the items you processed. This ensures items aren't lost if execution is interrupted. Acknowledge rejected items too since they don't need further action.
 
 ## Phase 2: Digest New Messages
 
@@ -80,4 +81,5 @@ Important discussions, news, or alpha worth knowing about but not actionable. Ke
 - If the same person appears across multiple chats, note that
 - Be generous with creating action items — it's easier to dismiss than to miss something
 - Always set `agentCommand.prompt` so the agent knows what to do when the user approves
-- Always confirm before sending Telegram messages (the send tool will prompt)
+- The `telegram_send` tool will prompt for terminal confirmation before actually sending — this is expected and acts as a final safety check even for pre-approved actions
+- When executing multiple approved sends in a row, batch them together and note to the user how many sends require terminal confirmation

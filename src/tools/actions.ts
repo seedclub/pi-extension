@@ -205,8 +205,9 @@ export function registerActionTools(pi: ExtensionAPI) {
       acknowledge: Type.Optional(
         Type.Boolean({
           description:
-            "Auto-acknowledge all returned responses (default: true)",
-          default: true,
+            "Auto-acknowledge all returned responses. Set to false (default) to acknowledge " +
+            "after execution to avoid losing items if the agent crashes mid-execution.",
+          default: false,
         })
       ),
     }),
@@ -222,12 +223,57 @@ export function registerActionTools(pi: ExtensionAPI) {
 
         const result = await api.get<{ actions: any[] }>("/actions", queryParams);
 
-        // Auto-acknowledge if requested (default: true)
-        if (params.acknowledge !== false && result.actions.length > 0) {
+        // Auto-acknowledge only if explicitly requested (default: false)
+        if (params.acknowledge === true && result.actions.length > 0) {
           const ids = result.actions.map((a) => a.id);
           await api.patch("/actions", { ids });
         }
 
+        return jsonResult(result);
+      } catch (e) {
+        if (e instanceof NotConnectedError) return notConnectedResult();
+        return errorResult(e);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "acknowledge_actions",
+    label: "Acknowledge Actions",
+    description:
+      "Mark action items as acknowledged after the agent has executed them. " +
+      "Call this AFTER successfully executing approved actions to prevent them " +
+      "from appearing again on the next poll. Pass the IDs of the items that " +
+      "were successfully processed.",
+    parameters: Type.Object({
+      ids: Type.Array(Type.String(), {
+        description: "IDs of action items to acknowledge",
+      }),
+    }),
+    renderCall: (args: any, theme: any) => {
+      const count = args.ids?.length || 0;
+      return new Text(
+        theme.fg("toolTitle", theme.bold("acknowledge_actions")) +
+        theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""})`),
+        0, 0
+      );
+    },
+    renderResult: (result: any, _opts: any, theme: any) => {
+      const details = result.details;
+      if (details?.error) {
+        return new Text(theme.fg("error", `✗ ${details.error}`), 0, 0);
+      }
+      return new Text(
+        theme.fg("success", `✓ Acknowledged ${details?.acknowledged || 0} of ${details?.total || 0} items`),
+        0, 0
+      );
+    },
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      try {
+        if (!params.ids.length) {
+          return jsonResult({ acknowledged: 0, total: 0, message: "No IDs provided" });
+        }
+        const result = await api.patch("/actions", { ids: params.ids });
         return jsonResult(result);
       } catch (e) {
         if (e instanceof NotConnectedError) return notConnectedResult();
