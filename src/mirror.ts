@@ -8,7 +8,7 @@
  * Configuration is loaded from ~/.config/seed-network/mirror (written by /seed-connect)
  * or from environment variables as a fallback:
  *   PI_MIRROR_URL     - Relay WebSocket URL
- *   PI_MIRROR_TOKEN   - Auth token (should match relay's PI_MIRROR_TOKEN)
+ *   PI_MIRROR_TOKEN   - Auth token (scoped bridge HMAC token)
  *   PI_MIRROR_SESSION - Session grouping key (default: "default")
  */
 
@@ -23,6 +23,22 @@ interface MirrorEvent {
   payload: Record<string, unknown>;
 }
 
+// --- Reconnect backoff ---
+
+const BASE_DELAY = 1000;
+const MAX_DELAY = 30_000;
+const JITTER = 0.3;
+
+function backoffDelay(attempt: number): number {
+  const delay = Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
+  const jitter = delay * JITTER * (Math.random() * 2 - 1);
+  return Math.round(delay + jitter);
+}
+
+// --- Heartbeat ---
+
+const HEARTBEAT_INTERVAL = 30_000; // Check every 30s (matches relay ping interval)
+
 export function registerMirror(pi: ExtensionAPI) {
   let relayUrl = "";
   let token = "";
@@ -30,11 +46,13 @@ export function registerMirror(pi: ExtensionAPI) {
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let reconnectAttempt = 0;
   let sessionId: string | undefined;
   let connected = false;
   let queue: MirrorEvent[] = [];
   let alive = false;
-  let piCtx: any = null; // Stash context for status updates
+  let piCtx: any = null;
 
   // --- Handle incoming messages from relay (e.g., approved actions) ---
 
@@ -68,7 +86,6 @@ export function registerMirror(pi: ExtensionAPI) {
     if (prompt) {
       message = `[Approved Action "${action.title}" (${action.id})]\n\n${prompt}\n\nThis action was pre-approved by the user. Execute it directly without asking for additional confirmation. When calling tools that normally require confirmation (like telegram_send), pass confirmed: true to skip the confirmation dialog. After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}".`;
     } else if (tool && args) {
-      // Format args, injecting confirmed: true for tools that support it
       const execArgs = tool === "telegram_send" ? { ...args, confirmed: true } : args;
       message = `[Approved Action "${action.title}" (${action.id})]\n\nThe user approved this action. Execute it now by calling the \`${tool}\` tool with these arguments:\n${JSON.stringify(execArgs, null, 2)}\n\nThis was pre-approved — do not ask for confirmation. After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}".`;
     } else {
@@ -86,7 +103,7 @@ export function registerMirror(pi: ExtensionAPI) {
 
   function updateStatus() {
     if (piCtx?.hasUI) {
-      piCtx.ui.setStatus("mirror", connected ? "🪞 mirror" : "🪞 mirror (connecting...)");
+      piCtx.ui.setStatus("mirror", connected ? "🪞 mirror" : undefined);
     }
   }
 
@@ -109,6 +126,30 @@ export function registerMirror(pi: ExtensionAPI) {
     return true;
   }
 
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      if (!alive) {
+        // No pong since last check — connection is dead
+        ws.terminate();
+        return;
+      }
+
+      // Reset and ping
+      alive = false;
+      ws.ping();
+    }, HEARTBEAT_INTERVAL);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
   async function connect() {
     try {
       const hasConfig = await loadConfig();
@@ -122,7 +163,9 @@ export function registerMirror(pi: ExtensionAPI) {
       ws.on("open", () => {
         connected = true;
         alive = true;
+        reconnectAttempt = 0;
         updateStatus();
+        startHeartbeat();
 
         // Flush queued events
         for (const msg of queue) {
@@ -142,6 +185,7 @@ export function registerMirror(pi: ExtensionAPI) {
       ws.on("close", () => {
         connected = false;
         ws = null;
+        stopHeartbeat();
         updateStatus();
         scheduleReconnect();
       });
@@ -157,10 +201,11 @@ export function registerMirror(pi: ExtensionAPI) {
 
   function scheduleReconnect() {
     if (reconnectTimer) return;
+    const delay = backoffDelay(reconnectAttempt++);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connect();
-    }, 3000);
+    }, delay);
   }
 
   function doSend(event: MirrorEvent) {
@@ -192,31 +237,39 @@ export function registerMirror(pi: ExtensionAPI) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    stopHeartbeat();
     if (ws) {
       ws.close();
       ws = null;
     }
     connected = false;
+    reconnectAttempt = 0;
   }
+
+  /** Disconnect, re-read config, and reconnect. Called after /seed-connect. */
+  function reconnect() {
+    disconnect();
+    connect();
+  }
+
+  // Listen for reconnect signal from /seed-connect via pi event bus
+  pi.events.on("seed:mirror:reconnect", reconnect);
 
   // --- Pi event hooks ---
 
   pi.on("session_start", async (_event, ctx) => {
     sessionId = ctx.sessionManager.getSessionId?.() ?? undefined;
-    piCtx = ctx; // Stash for status updates on connect/disconnect
+    piCtx = ctx;
 
     const entries = ctx.sessionManager.getEntries();
-    const messages: unknown[] = [];
+    let messageCount = 0;
     for (const entry of entries) {
-      if (entry.type === "message") {
-        messages.push(entry.message);
-      }
+      if (entry.type === "message") messageCount++;
     }
 
     emit("session_start", {
       sessionFile: ctx.sessionManager.getSessionFile?.() ?? null,
-      messageCount: messages.length,
-      messages: messages as unknown as Record<string, unknown>,
+      messageCount,
       cwd: ctx.cwd,
     });
 
@@ -225,12 +278,13 @@ export function registerMirror(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     emit("session_shutdown", {});
-    // Give a moment for the final event to send
     await new Promise((r) => setTimeout(r, 200));
     disconnect();
   });
 
   pi.on("session_switch", async (event) => {
+    // Re-stash context on session switch
+    piCtx = null; // Will be set again on next session_start
     emit("session_switch", {
       reason: event.reason,
       previousSessionFile: event.previousSessionFile,
@@ -312,17 +366,6 @@ export function registerMirror(pi: ExtensionAPI) {
       source: event.source,
     });
   });
-
-  // --- Public API for reconnecting after config changes ---
-
-  /** Disconnect, re-read config, and reconnect. Called after /seed-connect. */
-  function reconnect() {
-    disconnect();
-    connect();
-  }
-
-  // Expose on the pi instance so /seed-connect can trigger it
-  (pi as any)._mirrorReconnect = reconnect;
 
   // --- Start ---
   connect();
