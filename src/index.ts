@@ -20,7 +20,7 @@ import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
 import { registerActionTools } from "./tools/actions";
 import { getCurrentUser } from "./tools/utility";
-import { getStoredToken, storeToken, getApiBase } from "./auth";
+import { getStoredToken, storeToken, getApiBase, fetchMirrorConfig, storeMirrorConfig, clearMirrorConfig } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
 import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
 import { unlink } from "node:fs/promises";
@@ -87,7 +87,9 @@ export default function (pi: ExtensionAPI) {
     description: "Disconnect from Seed Network",
     handler: async (_args, ctx) => {
       await clearCredentials();
+      await clearMirrorConfig();
       ctx.ui.setStatus("seed", undefined);
+      ctx.ui.setStatus("mirror", undefined);
       ctx.ui.notify("Logged out of Seed Network", "info");
     },
   });
@@ -200,6 +202,13 @@ export default function (pi: ExtensionAPI) {
     await storeToken(token, result.email, apiBase);
     ctx.ui.notify(`✓ Connected as ${result.email}`, "success");
     ctx.ui.setStatus("seed", `🌱 ${result.email}`);
+
+    // Fetch and store relay config (only succeeds for curators)
+    const mirrorConfig = await fetchMirrorConfig(token, apiBase);
+    if (mirrorConfig) {
+      await storeMirrorConfig(mirrorConfig);
+      ctx.ui.notify("🪞 Mirror relay configured", "info");
+    }
   }
 }
 

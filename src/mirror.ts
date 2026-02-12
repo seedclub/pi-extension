@@ -5,14 +5,16 @@
  * The relay runs on Railway/Fly/etc. Browsers connect to the same relay
  * to receive the events. Full bidirectional WebSocket, zero polling.
  *
- * Environment variables:
- *   PI_MIRROR_URL     - Relay WebSocket URL (default: ws://localhost:3100)
+ * Configuration is loaded from ~/.config/seed-network/mirror (written by /seed-connect)
+ * or from environment variables as a fallback:
+ *   PI_MIRROR_URL     - Relay WebSocket URL
  *   PI_MIRROR_TOKEN   - Auth token (should match relay's PI_MIRROR_TOKEN)
  *   PI_MIRROR_SESSION - Session grouping key (default: "default")
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { WebSocket } from "ws";
+import { getMirrorConfig } from "./auth";
 
 interface MirrorEvent {
   type: string;
@@ -22,9 +24,9 @@ interface MirrorEvent {
 }
 
 export function registerMirror(pi: ExtensionAPI) {
-  const relayUrl = process.env.PI_MIRROR_URL || "ws://localhost:3100";
-  const token = process.env.PI_MIRROR_TOKEN || "";
-  const mirrorSession = process.env.PI_MIRROR_SESSION || "default";
+  let relayUrl = "";
+  let token = "";
+  let mirrorSession = "default";
 
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -90,8 +92,29 @@ export function registerMirror(pi: ExtensionAPI) {
     return `${relayUrl}?${params}`;
   }
 
-  function connect() {
+  let configLoaded = false;
+
+  async function loadConfig(): Promise<boolean> {
+    if (configLoaded) return !!relayUrl;
+    configLoaded = true;
+
+    const config = await getMirrorConfig();
+    if (!config) return false;
+
+    relayUrl = config.relayUrl;
+    token = config.token;
+    mirrorSession = config.session;
+    return true;
+  }
+
+  async function connect() {
     try {
+      const hasConfig = await loadConfig();
+      if (!hasConfig) {
+        // No config — silently skip (user hasn't run /seed-connect or isn't a curator)
+        return;
+      }
+
       ws = new WebSocket(buildUrl());
 
       ws.on("open", () => {
