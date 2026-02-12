@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import { api, NotConnectedError } from "../api-client";
+import { emitRelayEvent } from "../mirror";
 
 const actionItemTypes = [
   "intro_request",
@@ -244,36 +245,110 @@ export function registerActionTools(pi: ExtensionAPI) {
       "Mark action items as acknowledged after the agent has executed them. " +
       "Call this AFTER successfully executing approved actions to prevent them " +
       "from appearing again on the next poll. Pass the IDs of the items that " +
-      "were successfully processed.",
+      "were successfully processed, along with execution results.\n\n" +
+      "Each result should include:\n" +
+      "- status: 'success' or 'error'\n" +
+      "- summary: human-readable result (e.g., 'Message sent to Platform Discussion')\n" +
+      "- data: tool-specific return data (e.g., { messageId: 20563 })\n" +
+      "- error: error message if status is 'error'\n" +
+      "- toolName: which tool was executed",
     parameters: Type.Object({
       ids: Type.Array(Type.String(), {
         description: "IDs of action items to acknowledge",
       }),
+      results: Type.Optional(
+        Type.Record(
+          Type.String(),
+          Type.Object({
+            status: StringEnum(["success", "error"], {
+              description: "Whether execution succeeded or failed",
+            }),
+            summary: Type.Optional(
+              Type.String({ description: "Human-readable result summary" })
+            ),
+            data: Type.Optional(
+              Type.Record(Type.String(), Type.Unknown(), {
+                description: "Tool-specific return data",
+              })
+            ),
+            error: Type.Optional(
+              Type.String({ description: "Error message if failed" })
+            ),
+            toolName: Type.Optional(
+              Type.String({ description: "Which tool was executed" })
+            ),
+          }),
+          { description: "Map of action ID → execution result" }
+        )
+      ),
     }),
     renderCall: (args: any, theme: any) => {
       const count = args.ids?.length || 0;
-      return new Text(
-        theme.fg("toolTitle", theme.bold("acknowledge_actions")) +
-        theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""})`),
-        0, 0
-      );
+      const hasResults = !!args.results;
+      let text = theme.fg("toolTitle", theme.bold("acknowledge_actions"));
+      text += theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""}${hasResults ? " with results" : ""})`);
+      return new Text(text, 0, 0);
     },
     renderResult: (result: any, _opts: any, theme: any) => {
       const details = result.details;
       if (details?.error) {
         return new Text(theme.fg("error", `✗ ${details.error}`), 0, 0);
       }
-      return new Text(
-        theme.fg("success", `✓ Acknowledged ${details?.acknowledged || 0} of ${details?.total || 0} items`),
-        0, 0
-      );
+
+      const actions = details?.actions || [];
+      const succeeded = actions.filter((a: any) => a.status === "completed").length;
+      const failed = actions.filter((a: any) => a.status === "failed").length;
+
+      let text = theme.fg("success", `✓ Acknowledged ${details?.acknowledged || 0} of ${details?.total || 0} items`);
+      if (succeeded || failed) {
+        const parts = [];
+        if (succeeded) parts.push(theme.fg("success", `${succeeded} completed`));
+        if (failed) parts.push(theme.fg("error", `${failed} failed`));
+        text += theme.fg("dim", ` (${parts.join(", ")})`);
+      }
+
+      return new Text(text, 0, 0);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         if (!params.ids.length) {
           return jsonResult({ acknowledged: 0, total: 0, message: "No IDs provided" });
         }
-        const result = await api.patch("/actions", { ids: params.ids });
+
+        const body: Record<string, unknown> = { ids: params.ids };
+        if (params.results) {
+          body.results = params.results;
+        }
+
+        const result = await api.patch<{
+          acknowledged: number;
+          total: number;
+          actions: Array<{
+            id: string;
+            status: string;
+            executionStatus: string | null;
+            executionResult: Record<string, unknown> | null;
+          }>;
+        }>("/actions", body);
+
+        // Emit completion events through relay so webapp gets instant feedback
+        if (result.actions) {
+          for (const action of result.actions) {
+            const execResult = params.results?.[action.id];
+            emitRelayEvent(
+              action.status === "failed" ? "action_failed" : "action_completed",
+              {
+                id: action.id,
+                status: action.status,
+                executionStatus: action.executionStatus,
+                executionResult: action.executionResult,
+                ...(execResult?.summary && { summary: execResult.summary }),
+                ...(execResult?.error && { error: execResult.error }),
+              }
+            );
+          }
+        }
+
         return jsonResult(result);
       } catch (e) {
         if (e instanceof NotConnectedError) return notConnectedResult();

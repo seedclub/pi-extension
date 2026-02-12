@@ -39,6 +39,17 @@ function backoffDelay(attempt: number): number {
 
 const HEARTBEAT_INTERVAL = 30_000; // Check every 30s (matches relay ping interval)
 
+// Shared emitter — set by registerMirror, used by tools to push events
+let sharedEmit: ((type: string, payload: Record<string, unknown>) => void) | null = null;
+
+/**
+ * Emit an event through the relay bridge (e.g., action_completed).
+ * No-op if mirror is not connected or not registered yet.
+ */
+export function emitRelayEvent(type: string, payload: Record<string, unknown>) {
+  sharedEmit?.(type, payload);
+}
+
 export function registerMirror(pi: ExtensionAPI) {
   let relayUrl = "";
   let token = "";
@@ -82,12 +93,17 @@ export function registerMirror(pi: ExtensionAPI) {
 
     const { tool, args, prompt } = action.agentCommand;
 
+    const ackInstructions =
+      `After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}" and include a result:\n` +
+      `- results: { "${action.id}": { status: "success", summary: "<what happened>", toolName: "${tool || "agent"}" } }\n` +
+      `- If it failed: { "${action.id}": { status: "error", error: "<what went wrong>", toolName: "${tool || "agent"}" } }`;
+
     let message: string;
     if (prompt) {
-      message = `[Approved Action "${action.title}" (${action.id})]\n\n${prompt}\n\nThis action was pre-approved by the user. Execute it directly without asking for additional confirmation. When calling tools that normally require confirmation (like telegram_send), pass confirmed: true to skip the confirmation dialog. After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}".`;
+      message = `[Approved Action "${action.title}" (${action.id})]\n\n${prompt}\n\nThis action was pre-approved by the user. Execute it directly without asking for additional confirmation. When calling tools that normally require confirmation (like telegram_send), pass confirmed: true to skip the confirmation dialog.\n\n${ackInstructions}`;
     } else if (tool && args) {
       const execArgs = tool === "telegram_send" ? { ...args, confirmed: true } : args;
-      message = `[Approved Action "${action.title}" (${action.id})]\n\nThe user approved this action. Execute it now by calling the \`${tool}\` tool with these arguments:\n${JSON.stringify(execArgs, null, 2)}\n\nThis was pre-approved — do not ask for confirmation. After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}".`;
+      message = `[Approved Action "${action.title}" (${action.id})]\n\nThe user approved this action. Execute it now by calling the \`${tool}\` tool with these arguments:\n${JSON.stringify(execArgs, null, 2)}\n\nThis was pre-approved — do not ask for confirmation.\n\n${ackInstructions}`;
     } else {
       return;
     }
@@ -231,6 +247,9 @@ export function registerMirror(pi: ExtensionAPI) {
       }
     }
   }
+
+  // Expose emit to other modules (tools can push relay events)
+  sharedEmit = emit;
 
   function disconnect() {
     if (reconnectTimer) {
