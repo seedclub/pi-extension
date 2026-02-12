@@ -16,10 +16,15 @@ import { registerResearchTools } from "./tools/research";
 import { registerEnrichmentTools } from "./tools/enrichments";
 import { registerEventTools } from "./tools/events";
 import { registerTwitterTools } from "./tools/twitter";
+import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
+import { registerActionTools } from "./tools/actions";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
+import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
+import { unlink } from "node:fs/promises";
+import { registerMirror } from "./mirror";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
@@ -30,7 +35,12 @@ export default function (pi: ExtensionAPI) {
   registerEnrichmentTools(pi);
   registerEventTools(pi);
   registerTwitterTools(pi);
+  registerTelegramTools(pi);
   registerUtilityTools(pi);
+  registerActionTools(pi);
+
+  // --- Session mirror (streams events to web app) ---
+  registerMirror(pi);
 
   // --- Commands ---
 
@@ -96,6 +106,63 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // --- Telegram Commands ---
+
+  pi.registerCommand("telegram-login", {
+    description: "Connect to Telegram (interactive auth flow)",
+    handler: async (_args, ctx) => {
+      // Check if already connected
+      if (telegramSessionExists()) {
+        const session = await loadTelegramSession();
+        if (session) {
+          const keep = await ctx.ui.confirm(
+            "Already Connected",
+            `You're already connected to Telegram (${session.phone}). Re-authenticate?`
+          );
+          if (!keep) return;
+        }
+      }
+
+      const phone = await ctx.ui.input("Phone number:", "+1234567890");
+      if (!phone) { ctx.ui.notify("Cancelled", "info"); return; }
+
+      // login.py reads API credentials from TELEGRAM_API_ID / TELEGRAM_API_HASH env vars,
+      // or prompts interactively. Get credentials at https://my.telegram.org/apps
+      const cwd = getTelegramDir();
+
+      ctx.ui.notify(
+        `Complete login in your terminal:\n\n  cd ${cwd} && TELEGRAM_API_ID=<your_id> TELEGRAM_API_HASH=<your_hash> uv run scripts/login.py --phone ${phone.trim()}\n\nGet API credentials at https://my.telegram.org/apps\nThen run /reload here to pick up the session.`,
+        "info"
+      );
+    },
+  });
+
+  pi.registerCommand("telegram-logout", {
+    description: "Disconnect from Telegram",
+    handler: async (_args, ctx) => {
+      try {
+        await unlink(TELEGRAM_SESSION_PATH);
+        ctx.ui.setStatus("telegram", undefined);
+        ctx.ui.notify("Logged out of Telegram", "info");
+      } catch {
+        ctx.ui.notify("No Telegram session found", "info");
+      }
+    },
+  });
+
+  pi.registerCommand("telegram-status", {
+    description: "Check Telegram connection status",
+    handler: async (_args, ctx) => {
+      const session = await loadTelegramSession();
+      if (session) {
+        const phone = session.phone.replace(/(\d{3})\d+(\d{3})/, "$1***$2");
+        ctx.ui.notify(`📱 Connected as ${phone} (since ${session.authenticatedAt?.split("T")[0] || "unknown"})`, "info");
+      } else {
+        ctx.ui.notify("Not connected to Telegram. Run /telegram-login", "warning");
+      }
+    },
+  });
+
   // --- Show connection status on session start ---
 
   pi.on("session_start", async (_event, ctx) => {
@@ -104,6 +171,15 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.setStatus("seed", `🌱 ${stored.email}`);
     } else if (process.env.SEED_NETWORK_TOKEN) {
       ctx.ui.setStatus("seed", "🌱 Connected (env)");
+    }
+
+    // Telegram status
+    if (telegramSessionExists()) {
+      const session = await loadTelegramSession();
+      if (session) {
+        const phone = session.phone.replace(/(\d{3})\d+(\d{3})/, "$1***$2");
+        ctx.ui.setStatus("telegram", `📱 ${phone}`);
+      }
     }
   });
 
