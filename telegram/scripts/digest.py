@@ -6,7 +6,7 @@ Returns structured data for the LLM to process into action items.
 Updates watermarks after successful fetch so the next run skips these messages.
 
 Usage:
-  uv run scripts/digest.py [--chats "Chat A,Chat B"] [--limit 100] [--include-read] [--dry-run]
+  uv run scripts/digest.py [--chats "Chat A,Chat B"] [--limit 50] [--max-total 200] [--include-read] [--dry-run]
 
 Without --chats, processes all chats that have unread messages OR have watermarks
 (so chats you've digested before get checked even if Telegram shows them as read).
@@ -29,7 +29,8 @@ from telethon.errors import FloodWaitError
 
 async def run_digest(
     chat_filter: list[str] | None = None,
-    limit_per_chat: int = 100,
+    limit_per_chat: int = 50,
+    max_total: int = 200,
     include_read: bool = False,
     dry_run: bool = False,
 ):
@@ -95,19 +96,44 @@ async def run_digest(
         })
         return
 
+    # Prioritize: DMs first, then small groups, then large groups/channels
+    def chat_priority(c):
+        entity = c["dialog"].entity
+        entity_type = classify_entity(entity)
+        if entity_type == "user":
+            return 0  # DMs first
+        elif entity_type == "bot":
+            return 1
+        elif entity_type in ("group", "supergroup"):
+            return 2
+        else:
+            return 3  # channels last
+
+    chats_to_process.sort(key=chat_priority)
+
     # Fetch new messages from each chat
     digest_chats = []
+    skipped_chats = []
     watermark_updates = []
     total_new = 0
 
     for chat in chats_to_process:
+        # Enforce max_total budget
+        remaining = max_total - total_new
+        if remaining <= 0:
+            skipped_chats.append(chat["chatName"])
+            continue
+
         d = chat["dialog"]
         entity = d.entity
         wm_msg_id = chat["watermarkMessageId"]
 
+        # Use the smaller of limit_per_chat and remaining budget
+        effective_limit = min(limit_per_chat, remaining)
+
         try:
             # If we have a watermark, use min_id to get only newer messages
-            kwargs = {"limit": limit_per_chat}
+            kwargs = {"limit": effective_limit}
             if wm_msg_id:
                 kwargs["min_id"] = int(wm_msg_id)
 
@@ -164,19 +190,29 @@ async def run_digest(
     if not dry_run and watermark_updates:
         set_watermarks_batch(watermark_updates)
 
-    output({
+    result = {
         "chats": digest_chats,
         "chatCount": len(digest_chats),
         "totalNewMessages": total_new,
+        "maxTotal": max_total,
         "watermarksUpdated": not dry_run and len(watermark_updates) > 0,
         "dryRun": dry_run,
-    })
+    }
+    if skipped_chats:
+        result["skippedChats"] = skipped_chats
+        result["skippedNote"] = (
+            f"{len(skipped_chats)} chat(s) skipped due to maxTotal limit ({max_total}). "
+            "Run again or increase maxTotal to process remaining chats."
+        )
+    output(result)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch new messages for digest")
     parser.add_argument("--chats", type=str, help="Comma-separated chat names to check (default: all unread)")
-    parser.add_argument("--limit", type=int, default=100, help="Max messages per chat (default: 100)")
+    parser.add_argument("--limit", type=int, default=50, help="Max messages per chat (default: 50)")
+    parser.add_argument("--max-total", type=int, default=200,
+                        help="Max total messages across all chats (default: 200). Prevents context overflow.")
     parser.add_argument("--include-read", action="store_true",
                         help="Also check previously-watermarked chats even if 0 unread")
     parser.add_argument("--dry-run", action="store_true",
@@ -184,7 +220,7 @@ def main():
     args = parser.parse_args()
 
     chat_filter = [c.strip() for c in args.chats.split(",")] if args.chats else None
-    asyncio.run(run_digest(chat_filter, args.limit, args.include_read, args.dry_run))
+    asyncio.run(run_digest(chat_filter, args.limit, args.max_total, args.include_read, args.dry_run))
 
 
 if __name__ == "__main__":

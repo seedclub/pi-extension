@@ -222,6 +222,9 @@ function renderDigestResult(result: any, { expanded }: any, theme: any): Text {
 
   let text = theme.fg("success", `✓ ${total} new messages`) + theme.fg("dim", ` across ${chats.length} chats`);
   if (details?.dryRun) text += theme.fg("warning", " [dry run — watermarks not updated]");
+  if (details?.skippedChats?.length) {
+    text += theme.fg("warning", ` (${details.skippedChats.length} skipped — maxTotal reached)`);
+  }
 
   for (const c of chats) {
     if (c.error) {
@@ -309,10 +312,11 @@ async function telegramContacts(args: { search?: string }) {
   return runTelegramScript(execFn!, "contacts.py", scriptArgs);
 }
 
-async function telegramDigest(args: { chats?: string[]; limit?: number; includeRead?: boolean; dryRun?: boolean }) {
+async function telegramDigest(args: { chats?: string[]; limit?: number; maxTotal?: number; includeRead?: boolean; dryRun?: boolean }) {
   if (!telegramSessionExists()) throw new TelegramNotConnectedError();
   const scriptArgs: string[] = [];
   if (args.limit) scriptArgs.push("--limit", String(args.limit));
+  if (args.maxTotal) scriptArgs.push("--max-total", String(args.maxTotal));
   if (args.includeRead) scriptArgs.push("--include-read");
   if (args.dryRun) scriptArgs.push("--dry-run");
   if (args.chats?.length) scriptArgs.push("--chats", args.chats.join(","));
@@ -625,7 +629,8 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     description: "Fetch all new messages since the last digest across your Telegram chats. Uses watermarks to track what's been processed — won't repeat messages even if you've read them in the Telegram app. Returns messages grouped by chat for the LLM to extract action items, followups, and mentions.",
     parameters: Type.Object({
       chats: Type.Optional(Type.Array(Type.String(), { description: "Only digest these chats (default: all with unread)" })),
-      limit: Type.Optional(Type.Number({ description: "Max messages per chat (default: 100)" })),
+      limit: Type.Optional(Type.Number({ description: "Max messages per chat (default: 50)" })),
+      maxTotal: Type.Optional(Type.Number({ description: "Max total messages across all chats (default: 200). Prevents context overflow." })),
       includeRead: Type.Optional(Type.Boolean({ description: "Also check previously-digested chats even if 0 unread in Telegram" })),
       dryRun: Type.Optional(Type.Boolean({ description: "Fetch but don't update watermarks (preview mode)" })),
     }),
