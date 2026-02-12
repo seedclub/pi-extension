@@ -33,6 +33,52 @@ export function registerMirror(pi: ExtensionAPI) {
   let queue: MirrorEvent[] = [];
   let alive = false;
 
+  // --- Handle incoming messages from relay (e.g., approved actions) ---
+
+  function handleRelayMessage(raw: string) {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg.type === "execute_action") {
+        handleApprovedAction(msg.payload);
+      }
+    } catch {
+      // Ignore malformed messages
+    }
+  }
+
+  function handleApprovedAction(action: {
+    id: string;
+    title: string;
+    type: string;
+    agentCommand?: {
+      tool?: string;
+      args?: Record<string, unknown>;
+      prompt?: string;
+    };
+    userResponse?: string;
+  }) {
+    if (!action.agentCommand) return;
+
+    const { tool, args, prompt } = action.agentCommand;
+
+    let message: string;
+    if (prompt) {
+      message = `[Approved Action "${action.title}" (${action.id})]\n\n${prompt}\n\nThis action was pre-approved by the user. Execute it directly without asking for additional confirmation. When calling tools that normally require confirmation (like telegram_send), pass confirmed: true to skip the confirmation dialog. After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}".`;
+    } else if (tool && args) {
+      // Format args, injecting confirmed: true for tools that support it
+      const execArgs = tool === "telegram_send" ? { ...args, confirmed: true } : args;
+      message = `[Approved Action "${action.title}" (${action.id})]\n\nThe user approved this action. Execute it now by calling the \`${tool}\` tool with these arguments:\n${JSON.stringify(execArgs, null, 2)}\n\nThis was pre-approved — do not ask for confirmation. After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}".`;
+    } else {
+      return;
+    }
+
+    if (action.userResponse) {
+      message += `\n\nUser's note: "${action.userResponse}"`;
+    }
+
+    pi.sendUserMessage(message, { deliverAs: "followUp" });
+  }
+
   // --- Connection management ---
 
   function buildUrl() {
@@ -57,6 +103,10 @@ export function registerMirror(pi: ExtensionAPI) {
           doSend(msg);
         }
         queue = [];
+      });
+
+      ws.on("message", (data) => {
+        handleRelayMessage(typeof data === "string" ? data : data.toString());
       });
 
       ws.on("pong", () => {
