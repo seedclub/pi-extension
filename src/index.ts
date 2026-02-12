@@ -207,6 +207,9 @@ export default function (pi: ExtensionAPI) {
     const mirrorConfig = await fetchMirrorConfig(token, apiBase);
     if (mirrorConfig) {
       await storeMirrorConfig(mirrorConfig);
+      // Reconnect mirror with new config (e.g., new session key)
+      const reconnect = (pi as any)._mirrorReconnect;
+      if (typeof reconnect === "function") reconnect();
       ctx.ui.notify("🪞 Mirror relay configured", "info");
     }
   }

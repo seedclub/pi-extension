@@ -34,6 +34,7 @@ export function registerMirror(pi: ExtensionAPI) {
   let connected = false;
   let queue: MirrorEvent[] = [];
   let alive = false;
+  let piCtx: any = null; // Stash context for status updates
 
   // --- Handle incoming messages from relay (e.g., approved actions) ---
 
@@ -83,6 +84,12 @@ export function registerMirror(pi: ExtensionAPI) {
 
   // --- Connection management ---
 
+  function updateStatus() {
+    if (piCtx?.hasUI) {
+      piCtx.ui.setStatus("mirror", connected ? "🪞 mirror" : "🪞 mirror (connecting...)");
+    }
+  }
+
   function buildUrl() {
     const params = new URLSearchParams({
       role: "bridge",
@@ -92,12 +99,7 @@ export function registerMirror(pi: ExtensionAPI) {
     return `${relayUrl}?${params}`;
   }
 
-  let configLoaded = false;
-
   async function loadConfig(): Promise<boolean> {
-    if (configLoaded) return !!relayUrl;
-    configLoaded = true;
-
     const config = await getMirrorConfig();
     if (!config) return false;
 
@@ -120,6 +122,7 @@ export function registerMirror(pi: ExtensionAPI) {
       ws.on("open", () => {
         connected = true;
         alive = true;
+        updateStatus();
 
         // Flush queued events
         for (const msg of queue) {
@@ -139,6 +142,7 @@ export function registerMirror(pi: ExtensionAPI) {
       ws.on("close", () => {
         connected = false;
         ws = null;
+        updateStatus();
         scheduleReconnect();
       });
 
@@ -199,6 +203,7 @@ export function registerMirror(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     sessionId = ctx.sessionManager.getSessionId?.() ?? undefined;
+    piCtx = ctx; // Stash for status updates on connect/disconnect
 
     const entries = ctx.sessionManager.getEntries();
     const messages: unknown[] = [];
@@ -215,9 +220,7 @@ export function registerMirror(pi: ExtensionAPI) {
       cwd: ctx.cwd,
     });
 
-    if (ctx.hasUI) {
-      ctx.ui.setStatus("mirror", connected ? "🪞 mirror" : "🪞 mirror (connecting...)");
-    }
+    updateStatus();
   });
 
   pi.on("session_shutdown", async () => {
@@ -309,6 +312,17 @@ export function registerMirror(pi: ExtensionAPI) {
       source: event.source,
     });
   });
+
+  // --- Public API for reconnecting after config changes ---
+
+  /** Disconnect, re-read config, and reconnect. Called after /seed-connect. */
+  function reconnect() {
+    disconnect();
+    connect();
+  }
+
+  // Expose on the pi instance so /seed-connect can trigger it
+  (pi as any)._mirrorReconnect = reconnect;
 
   // --- Start ---
   connect();
