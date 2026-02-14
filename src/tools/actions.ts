@@ -170,6 +170,20 @@ export function registerActionTools(pi: ExtensionAPI) {
               ),
             })
           ),
+          // Workflow chaining — use these to create multi-step sequential workflows.
+          // The first step generates a workflowId; subsequent steps reuse it with incrementing stepIndex.
+          // If workflowId is omitted, the server auto-generates one (every action belongs to a workflow).
+          workflowId: Type.Optional(
+            Type.String({
+              description:
+                "Workflow ID grouping multi-step actions. Generate one for step 0, reuse for subsequent steps.",
+            })
+          ),
+          stepIndex: Type.Optional(
+            Type.Number({
+              description: "0-based step position in the workflow (0 = first step)",
+            })
+          ),
         }),
         { description: "Array of action items to create (max 50)" }
       ),

@@ -13,6 +13,31 @@ const CONFIG_DIR = join(homedir(), ".config", "seed-network");
 const TOKEN_FILE = join(CONFIG_DIR, "token");
 const MIRROR_FILE = join(CONFIG_DIR, "mirror");
 const DEFAULT_API_BASE = "https://beta.seedclub.com";
+const LOCAL_API_BASE = "http://localhost:3000";
+
+/** Cache the localhost probe so we only check once per session */
+let localhostProbeResult: boolean | null = null;
+
+async function isLocalhostRunning(): Promise<boolean> {
+  if (localhostProbeResult !== null) return localhostProbeResult;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 500);
+    const res = await fetch(`${LOCAL_API_BASE}/api/health`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    localhostProbeResult = res.ok;
+  } catch {
+    localhostProbeResult = false;
+  }
+  return localhostProbeResult;
+}
+
+/** Reset the cached probe (e.g. if the user starts/stops the dev server) */
+export function resetLocalhostProbe(): void {
+  localhostProbeResult = null;
+}
 
 export interface StoredToken {
   token: string;
@@ -23,6 +48,17 @@ export interface StoredToken {
 
 export function getApiBase(): string {
   return process.env.SEED_NETWORK_API || DEFAULT_API_BASE;
+}
+
+/**
+ * Resolve the API base to use.
+ * Priority: SEED_NETWORK_API env > localhost:3000 (if running) > stored token apiBase > default.
+ */
+export async function resolveApiBase(): Promise<string> {
+  if (process.env.SEED_NETWORK_API) return process.env.SEED_NETWORK_API;
+  if (await isLocalhostRunning()) return LOCAL_API_BASE;
+  const stored = await getStoredToken();
+  return stored?.apiBase || DEFAULT_API_BASE;
 }
 
 export async function getStoredToken(): Promise<StoredToken | null> {
