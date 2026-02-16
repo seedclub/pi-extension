@@ -50,6 +50,16 @@ export function emitRelayEvent(type: string, payload: Record<string, unknown>) {
   sharedEmit?.(type, payload);
 }
 
+// Shared clear function — set by registerMirror, used to clear in-flight after acknowledgement
+let sharedClearInFlight: ((ids: string[]) => void) | null = null;
+
+/**
+ * Clear in-flight tracking for the given step IDs (called after acknowledge_actions succeeds).
+ */
+export function clearInFlightSteps(ids: string[]) {
+  sharedClearInFlight?.(ids);
+}
+
 export function registerMirror(pi: ExtensionAPI) {
   let relayUrl = "";
   let token = "";
@@ -65,6 +75,17 @@ export function registerMirror(pi: ExtensionAPI) {
   let alive = false;
   let piCtx: any = null;
 
+  // Track in-flight step IDs to prevent duplicate execution.
+  // A step is added when we inject the followUp message, and removed
+  // when it's acknowledged via acknowledge_actions or after a timeout.
+  const inFlightSteps = new Set<string>();
+  const IN_FLIGHT_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  function markInFlight(stepId: string) {
+    inFlightSteps.add(stepId);
+    setTimeout(() => inFlightSteps.delete(stepId), IN_FLIGHT_TTL_MS);
+  }
+
   // --- Handle incoming messages from relay (e.g., approved actions) ---
 
   function handleRelayMessage(raw: string) {
@@ -72,6 +93,8 @@ export function registerMirror(pi: ExtensionAPI) {
       const msg = JSON.parse(raw);
       if (msg.type === "execute_action") {
         handleApprovedAction(msg.payload);
+      } else if (msg.type === "user_prompt") {
+        handleUserPrompt(msg.payload);
       }
     } catch {
       // Ignore malformed messages
@@ -91,6 +114,11 @@ export function registerMirror(pi: ExtensionAPI) {
   }) {
     if (!action.agentCommand) return;
 
+    // Dedup: skip if this step is already in-flight (e.g., replay after reconnect
+    // while the agent is already executing it from a prior push or poll)
+    if (inFlightSteps.has(action.id)) return;
+    markInFlight(action.id);
+
     const { tool, args, prompt } = action.agentCommand;
 
     const ackInstructions =
@@ -102,7 +130,10 @@ export function registerMirror(pi: ExtensionAPI) {
     if (prompt) {
       message = `[Approved Action "${action.title}" (${action.id})]\n\n${prompt}\n\nThis action was pre-approved by the user. Execute it directly without asking for additional confirmation. When calling tools that normally require confirmation (like telegram_send), pass confirmed: true to skip the confirmation dialog.\n\n${ackInstructions}`;
     } else if (tool && args) {
-      const execArgs = tool === "telegram_send" ? { ...args, confirmed: true } : args;
+      // Inject confirmed: true for tools that have interactive confirmation dialogs.
+      // The user already approved this action in the webapp — skip the pi-side prompt.
+      const CONFIRMABLE_TOOLS = ["telegram_send", "telegram_create_group", "telegram_leave_chat"];
+      const execArgs = CONFIRMABLE_TOOLS.includes(tool) ? { ...args, confirmed: true } : args;
       message = `[Approved Action "${action.title}" (${action.id})]\n\nThe user approved this action. Execute it now by calling the \`${tool}\` tool with these arguments:\n${JSON.stringify(execArgs, null, 2)}\n\nThis was pre-approved — do not ask for confirmation.\n\n${ackInstructions}`;
     } else {
       return;
@@ -113,6 +144,11 @@ export function registerMirror(pi: ExtensionAPI) {
     }
 
     pi.sendUserMessage(message, { deliverAs: "followUp" });
+  }
+
+  function handleUserPrompt(payload: { text?: string }) {
+    if (!payload.text?.trim()) return;
+    pi.sendUserMessage(payload.text.trim(), { deliverAs: "followUp" });
   }
 
   // --- Connection management ---
@@ -248,8 +284,11 @@ export function registerMirror(pi: ExtensionAPI) {
     }
   }
 
-  // Expose emit to other modules (tools can push relay events)
+  // Expose emit and clearInFlight to other modules
   sharedEmit = emit;
+  sharedClearInFlight = (ids: string[]) => {
+    for (const id of ids) inFlightSteps.delete(id);
+  };
 
   function disconnect() {
     if (reconnectTimer) {

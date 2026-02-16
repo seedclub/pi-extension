@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import { api, NotConnectedError } from "../api-client";
-import { emitRelayEvent } from "../mirror";
+import { emitRelayEvent, clearInFlightSteps } from "../mirror";
 
 const actionItemTypes = [
   "intro_request",
@@ -125,7 +125,11 @@ export function registerActionTools(pi: ExtensionAPI) {
       "Create action items that surface in the Seed Network webapp for the user to approve, reject, or customize. " +
       "Use after telegram digests, signal tending, or any workflow that produces actionable items. " +
       "Accepts a single action or a batch. Each action has a type, title, optional description, " +
-      "suggested action, source context, and an agent command to execute when approved.",
+      "suggested action, source context, and an agent command to execute when approved.\n\n" +
+      "Multi-step workflows: steps sharing a workflowId are sequentially gated — " +
+      "step N cannot be approved until step N-1 is completed. " +
+      "If a step is rejected, all downstream steps are automatically archived. " +
+      "Use idempotencyKey to safely retry creation without duplicates.",
     parameters: Type.Object({
       actions: Type.Array(
         Type.Object({
@@ -184,6 +188,13 @@ export function registerActionTools(pi: ExtensionAPI) {
               description: "0-based step position in the workflow (0 = first step)",
             })
           ),
+          idempotencyKey: Type.Optional(
+            Type.String({
+              description:
+                "Unique key to prevent duplicate creation on retries. " +
+                "If a step with this key already exists, the existing step is returned.",
+            })
+          ),
         }),
         { description: "Array of action items to create (max 50)" }
       ),
@@ -192,11 +203,23 @@ export function registerActionTools(pi: ExtensionAPI) {
     renderResult: renderCreateResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
+        let result: any;
         if (params.actions.length === 1) {
-          const result = await api.post("/actions", params.actions[0]);
-          return jsonResult(result);
+          result = await api.post("/workflows", params.actions[0]);
+        } else {
+          result = await api.post("/workflows", { actions: params.actions });
         }
-        const result = await api.post("/actions", { actions: params.actions });
+
+        // Emit relay event so the webapp can instantly refresh action items
+        const createdActions = result.actions || (result.action ? [result.action] : []);
+        if (createdActions.length > 0) {
+          emitRelayEvent("actions_created", {
+            count: createdActions.length,
+            ids: createdActions.map((a: any) => a.id),
+            batchId: result.batchId || null,
+          });
+        }
+
         return jsonResult(result);
       } catch (e) {
         if (e instanceof NotConnectedError) return notConnectedResult();
@@ -236,12 +259,12 @@ export function registerActionTools(pi: ExtensionAPI) {
         };
         if (params.batchId) queryParams.batchId = params.batchId;
 
-        const result = await api.get<{ actions: any[] }>("/actions", queryParams);
+        const result = await api.get<{ actions: any[] }>("/workflows", queryParams);
 
         // Auto-acknowledge only if explicitly requested (default: false)
         if (params.acknowledge === true && result.actions.length > 0) {
           const ids = result.actions.map((a) => a.id);
-          await api.patch("/actions", { ids });
+          await api.patch("/workflows", { ids });
         }
 
         return jsonResult(result);
@@ -343,7 +366,10 @@ export function registerActionTools(pi: ExtensionAPI) {
             executionStatus: string | null;
             executionResult: Record<string, unknown> | null;
           }>;
-        }>("/actions", body);
+        }>("/workflows", body);
+
+        // Clear in-flight tracking for acknowledged steps
+        clearInFlightSteps(params.ids);
 
         // Emit completion events through relay so webapp gets instant feedback
         if (result.actions) {
