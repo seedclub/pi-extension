@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import { api, NotConnectedError } from "../api-client";
+import { emitRelayEvent, clearInFlightSteps } from "../mirror";
 
 const actionItemTypes = [
   "intro_request",
@@ -124,7 +125,11 @@ export function registerActionTools(pi: ExtensionAPI) {
       "Create action items that surface in the Seed Network webapp for the user to approve, reject, or customize. " +
       "Use after telegram digests, signal tending, or any workflow that produces actionable items. " +
       "Accepts a single action or a batch. Each action has a type, title, optional description, " +
-      "suggested action, source context, and an agent command to execute when approved.",
+      "suggested action, source context, and an agent command to execute when approved.\n\n" +
+      "Multi-step workflows: steps sharing a workflowId are sequentially gated — " +
+      "step N cannot be approved until step N-1 is completed. " +
+      "If a step is rejected, all downstream steps are automatically archived. " +
+      "Use idempotencyKey to safely retry creation without duplicates.",
     parameters: Type.Object({
       actions: Type.Array(
         Type.Object({
@@ -169,6 +174,27 @@ export function registerActionTools(pi: ExtensionAPI) {
               ),
             })
           ),
+          // Workflow chaining — use these to create multi-step sequential workflows.
+          // The first step generates a workflowId; subsequent steps reuse it with incrementing stepIndex.
+          // If workflowId is omitted, the server auto-generates one (every action belongs to a workflow).
+          workflowId: Type.Optional(
+            Type.String({
+              description:
+                "Workflow ID grouping multi-step actions. Generate one for step 0, reuse for subsequent steps.",
+            })
+          ),
+          stepIndex: Type.Optional(
+            Type.Number({
+              description: "0-based step position in the workflow (0 = first step)",
+            })
+          ),
+          idempotencyKey: Type.Optional(
+            Type.String({
+              description:
+                "Unique key to prevent duplicate creation on retries. " +
+                "If a step with this key already exists, the existing step is returned.",
+            })
+          ),
         }),
         { description: "Array of action items to create (max 50)" }
       ),
@@ -177,11 +203,23 @@ export function registerActionTools(pi: ExtensionAPI) {
     renderResult: renderCreateResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
+        let result: any;
         if (params.actions.length === 1) {
-          const result = await api.post("/actions", params.actions[0]);
-          return jsonResult(result);
+          result = await api.post("/workflows", params.actions[0]);
+        } else {
+          result = await api.post("/workflows", { actions: params.actions });
         }
-        const result = await api.post("/actions", { actions: params.actions });
+
+        // Emit relay event so the webapp can instantly refresh action items
+        const createdActions = result.actions || (result.action ? [result.action] : []);
+        if (createdActions.length > 0) {
+          emitRelayEvent("actions_created", {
+            count: createdActions.length,
+            ids: createdActions.map((a: any) => a.id),
+            batchId: result.batchId || null,
+          });
+        }
+
         return jsonResult(result);
       } catch (e) {
         if (e instanceof NotConnectedError) return notConnectedResult();
@@ -221,12 +259,12 @@ export function registerActionTools(pi: ExtensionAPI) {
         };
         if (params.batchId) queryParams.batchId = params.batchId;
 
-        const result = await api.get<{ actions: any[] }>("/actions", queryParams);
+        const result = await api.get<{ actions: any[] }>("/workflows", queryParams);
 
         // Auto-acknowledge only if explicitly requested (default: false)
         if (params.acknowledge === true && result.actions.length > 0) {
           const ids = result.actions.map((a) => a.id);
-          await api.patch("/actions", { ids });
+          await api.patch("/workflows", { ids });
         }
 
         return jsonResult(result);
@@ -244,36 +282,113 @@ export function registerActionTools(pi: ExtensionAPI) {
       "Mark action items as acknowledged after the agent has executed them. " +
       "Call this AFTER successfully executing approved actions to prevent them " +
       "from appearing again on the next poll. Pass the IDs of the items that " +
-      "were successfully processed.",
+      "were successfully processed, along with execution results.\n\n" +
+      "Each result should include:\n" +
+      "- status: 'success' or 'error'\n" +
+      "- summary: human-readable result (e.g., 'Message sent to Platform Discussion')\n" +
+      "- data: tool-specific return data (e.g., { messageId: 20563 })\n" +
+      "- error: error message if status is 'error'\n" +
+      "- toolName: which tool was executed",
     parameters: Type.Object({
       ids: Type.Array(Type.String(), {
         description: "IDs of action items to acknowledge",
       }),
+      results: Type.Optional(
+        Type.Record(
+          Type.String(),
+          Type.Object({
+            status: StringEnum(["success", "error"], {
+              description: "Whether execution succeeded or failed",
+            }),
+            summary: Type.Optional(
+              Type.String({ description: "Human-readable result summary" })
+            ),
+            data: Type.Optional(
+              Type.Record(Type.String(), Type.Unknown(), {
+                description: "Tool-specific return data",
+              })
+            ),
+            error: Type.Optional(
+              Type.String({ description: "Error message if failed" })
+            ),
+            toolName: Type.Optional(
+              Type.String({ description: "Which tool was executed" })
+            ),
+          }),
+          { description: "Map of action ID → execution result" }
+        )
+      ),
     }),
     renderCall: (args: any, theme: any) => {
       const count = args.ids?.length || 0;
-      return new Text(
-        theme.fg("toolTitle", theme.bold("acknowledge_actions")) +
-        theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""})`),
-        0, 0
-      );
+      const hasResults = !!args.results;
+      let text = theme.fg("toolTitle", theme.bold("acknowledge_actions"));
+      text += theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""}${hasResults ? " with results" : ""})`);
+      return new Text(text, 0, 0);
     },
     renderResult: (result: any, _opts: any, theme: any) => {
       const details = result.details;
       if (details?.error) {
         return new Text(theme.fg("error", `✗ ${details.error}`), 0, 0);
       }
-      return new Text(
-        theme.fg("success", `✓ Acknowledged ${details?.acknowledged || 0} of ${details?.total || 0} items`),
-        0, 0
-      );
+
+      const actions = details?.actions || [];
+      const succeeded = actions.filter((a: any) => a.status === "completed").length;
+      const failed = actions.filter((a: any) => a.status === "failed").length;
+
+      let text = theme.fg("success", `✓ Acknowledged ${details?.acknowledged || 0} of ${details?.total || 0} items`);
+      if (succeeded || failed) {
+        const parts = [];
+        if (succeeded) parts.push(theme.fg("success", `${succeeded} completed`));
+        if (failed) parts.push(theme.fg("error", `${failed} failed`));
+        text += theme.fg("dim", ` (${parts.join(", ")})`);
+      }
+
+      return new Text(text, 0, 0);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       try {
         if (!params.ids.length) {
           return jsonResult({ acknowledged: 0, total: 0, message: "No IDs provided" });
         }
-        const result = await api.patch("/actions", { ids: params.ids });
+
+        const body: Record<string, unknown> = { ids: params.ids };
+        if (params.results) {
+          body.results = params.results;
+        }
+
+        const result = await api.patch<{
+          acknowledged: number;
+          total: number;
+          actions: Array<{
+            id: string;
+            status: string;
+            executionStatus: string | null;
+            executionResult: Record<string, unknown> | null;
+          }>;
+        }>("/workflows", body);
+
+        // Clear in-flight tracking for acknowledged steps
+        clearInFlightSteps(params.ids);
+
+        // Emit completion events through relay so webapp gets instant feedback
+        if (result.actions) {
+          for (const action of result.actions) {
+            const execResult = params.results?.[action.id];
+            emitRelayEvent(
+              action.status === "failed" ? "action_failed" : "action_completed",
+              {
+                id: action.id,
+                status: action.status,
+                executionStatus: action.executionStatus,
+                executionResult: action.executionResult,
+                ...(execResult?.summary && { summary: execResult.summary }),
+                ...(execResult?.error && { error: execResult.error }),
+              }
+            );
+          }
+        }
+
         return jsonResult(result);
       } catch (e) {
         if (e instanceof NotConnectedError) return notConnectedResult();

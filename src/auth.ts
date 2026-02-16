@@ -11,7 +11,33 @@ import { readFile, writeFile, mkdir, unlink, chmod } from "node:fs/promises";
 
 const CONFIG_DIR = join(homedir(), ".config", "seed-network");
 const TOKEN_FILE = join(CONFIG_DIR, "token");
+const MIRROR_FILE = join(CONFIG_DIR, "mirror");
 const DEFAULT_API_BASE = "https://beta.seedclub.com";
+const LOCAL_API_BASE = "http://localhost:3000";
+
+/** Cache the localhost probe so we only check once per session */
+let localhostProbeResult: boolean | null = null;
+
+async function isLocalhostRunning(): Promise<boolean> {
+  if (localhostProbeResult !== null) return localhostProbeResult;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 500);
+    const res = await fetch(`${LOCAL_API_BASE}/api/health`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    localhostProbeResult = res.ok;
+  } catch {
+    localhostProbeResult = false;
+  }
+  return localhostProbeResult;
+}
+
+/** Reset the cached probe (e.g. if the user starts/stops the dev server) */
+export function resetLocalhostProbe(): void {
+  localhostProbeResult = null;
+}
 
 export interface StoredToken {
   token: string;
@@ -22,6 +48,17 @@ export interface StoredToken {
 
 export function getApiBase(): string {
   return process.env.SEED_NETWORK_API || DEFAULT_API_BASE;
+}
+
+/**
+ * Resolve the API base to use.
+ * Priority: SEED_NETWORK_API env > localhost:3000 (if running) > stored token apiBase > default.
+ */
+export async function resolveApiBase(): Promise<string> {
+  if (process.env.SEED_NETWORK_API) return process.env.SEED_NETWORK_API;
+  if (await isLocalhostRunning()) return LOCAL_API_BASE;
+  const stored = await getStoredToken();
+  return stored?.apiBase || DEFAULT_API_BASE;
 }
 
 export async function getStoredToken(): Promise<StoredToken | null> {
@@ -49,4 +86,61 @@ export async function storeToken(token: string, email: string, apiBase: string):
 
 export async function clearStoredToken(): Promise<boolean> {
   try { await unlink(TOKEN_FILE); return true; } catch { return false; }
+}
+
+// --- Mirror / relay config ---
+
+export interface MirrorConfig {
+  relayUrl: string;
+  token: string;
+  session: string;
+  fetchedAt: string;
+}
+
+export async function getMirrorConfig(): Promise<MirrorConfig | null> {
+  // Env vars take priority (for CI, custom setups)
+  if (process.env.PI_MIRROR_URL && process.env.PI_MIRROR_TOKEN) {
+    return {
+      relayUrl: process.env.PI_MIRROR_URL,
+      token: process.env.PI_MIRROR_TOKEN,
+      session: process.env.PI_MIRROR_SESSION || "default",
+      fetchedAt: "env",
+    };
+  }
+
+  try {
+    const content = await readFile(MIRROR_FILE, "utf-8");
+    return JSON.parse(content) as MirrorConfig;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeMirrorConfig(config: Omit<MirrorConfig, "fetchedAt">): Promise<void> {
+  await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  const data: MirrorConfig = { ...config, fetchedAt: new Date().toISOString() };
+  await writeFile(MIRROR_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+  try { await chmod(MIRROR_FILE, 0o600); } catch {}
+}
+
+export async function clearMirrorConfig(): Promise<boolean> {
+  try { await unlink(MIRROR_FILE); return true; } catch { return false; }
+}
+
+/**
+ * Fetch relay config from the Seed Network API.
+ * Only works for curators — returns null for regular users.
+ */
+export async function fetchMirrorConfig(apiToken: string, apiBase: string): Promise<Omit<MirrorConfig, "fetchedAt"> | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/relay/config`, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.relayUrl || !data.token) return null;
+    return { relayUrl: data.relayUrl, token: data.token, session: data.session || "default" };
+  } catch {
+    return null;
+  }
 }

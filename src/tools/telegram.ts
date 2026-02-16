@@ -467,21 +467,25 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       chat: Type.String({ description: "Chat name, @username, or numeric ID" }),
       message: Type.String({ description: "Message text to send" }),
       replyTo: Type.Optional(Type.Number({ description: "Message ID to reply to" })),
+      confirmed: Type.Optional(Type.Boolean({ description: "Skip confirmation dialog (for pre-approved actions)" })),
     }),
     renderCall: renderSendCall,
     renderResult: renderSendResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!telegramSessionExists()) return notConnectedResult();
 
-      const ok = await ctx.ui.confirm(
-        "Send Telegram Message",
-        `To: ${params.chat}\n\n${params.message}${params.replyTo ? `\n\n(reply to #${params.replyTo})` : ""}`
-      );
-      if (!ok) {
-        return {
-          content: [{ type: "text" as const, text: "Message send cancelled by user." }],
-          details: { cancelled: true },
-        };
+      // Skip confirmation if pre-approved (e.g., from webapp action items)
+      if (!params.confirmed) {
+        const ok = await ctx.ui.confirm(
+          "Send Telegram Message",
+          `To: ${params.chat}\n\n${params.message}${params.replyTo ? `\n\n(reply to #${params.replyTo})` : ""}`
+        );
+        if (!ok) {
+          return {
+            content: [{ type: "text" as const, text: "Message send cancelled by user." }],
+            details: { cancelled: true },
+          };
+        }
       }
 
       try {
@@ -503,20 +507,23 @@ export function registerTelegramTools(pi: ExtensionAPI) {
       title: Type.String({ description: "Group chat title" }),
       users: Type.Array(Type.String(), { description: "Users to add (@username, numeric ID, or contact name)" }),
       message: Type.Optional(Type.String({ description: "First message to send in the group" })),
+      confirmed: Type.Optional(Type.Boolean({ description: "Skip confirmation dialog (for pre-approved actions)" })),
     }),
     renderCall: renderCreateGroupCall,
     renderResult: renderCreateGroupResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!telegramSessionExists()) return notConnectedResult();
 
-      const userList = params.users.join(", ");
-      const confirmMsg = `Title: ${params.title}\nMembers: ${userList}${params.message ? `\n\nFirst message: "${params.message}"` : ""}`;
-      const ok = await ctx.ui.confirm("Create Telegram Group", confirmMsg);
-      if (!ok) {
-        return {
-          content: [{ type: "text" as const, text: "Group creation cancelled by user." }],
-          details: { cancelled: true },
-        };
+      if (!params.confirmed) {
+        const userList = params.users.join(", ");
+        const confirmMsg = `Title: ${params.title}\nMembers: ${userList}${params.message ? `\n\nFirst message: "${params.message}"` : ""}`;
+        const ok = await ctx.ui.confirm("Create Telegram Group", confirmMsg);
+        if (!ok) {
+          return {
+            content: [{ type: "text" as const, text: "Group creation cancelled by user." }],
+            details: { cancelled: true },
+          };
+        }
       }
 
       try {
@@ -535,22 +542,25 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     parameters: Type.Object({
       chat: Type.String({ description: "Chat name, @username, or numeric ID" }),
       delete: Type.Optional(Type.Boolean({ description: "Also delete the chat history (default: false)" })),
+      confirmed: Type.Optional(Type.Boolean({ description: "Skip confirmation dialog (for pre-approved actions)" })),
     }),
     renderCall: renderLeaveChatCall,
     renderResult: renderLeaveChatResult,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!telegramSessionExists()) return notConnectedResult();
 
-      const deleteNote = params.delete ? " and delete all history" : "";
-      const ok = await ctx.ui.confirm(
-        "Leave Telegram Chat",
-        `Leave "${params.chat}"${deleteNote}?`
-      );
-      if (!ok) {
-        return {
-          content: [{ type: "text" as const, text: "Leave chat cancelled by user." }],
-          details: { cancelled: true },
-        };
+      if (!params.confirmed) {
+        const deleteNote = params.delete ? " and delete all history" : "";
+        const ok = await ctx.ui.confirm(
+          "Leave Telegram Chat",
+          `Leave "${params.chat}"${deleteNote}?`
+        );
+        if (!ok) {
+          return {
+            content: [{ type: "text" as const, text: "Leave chat cancelled by user." }],
+            details: { cancelled: true },
+          };
+        }
       }
 
       try {

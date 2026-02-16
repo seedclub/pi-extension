@@ -3,7 +3,7 @@
  * Simple HTTP client with Bearer token auth.
  */
 
-import { getToken, getApiBase, clearStoredToken } from "./auth";
+import { getToken, getApiBase, resolveApiBase, clearStoredToken } from "./auth";
 
 let cachedToken: string | null = null;
 let cachedApiBase: string | null = null;
@@ -38,7 +38,8 @@ async function getAuthToken(): Promise<string> {
   const token = await getToken();
   if (!token) throw new NotConnectedError();
   cachedToken = token;
-  cachedApiBase = getApiBase();
+  // Resolve API base: prefer localhost if running, else stored/default
+  cachedApiBase = await resolveApiBase();
   return token;
 }
 
