@@ -474,7 +474,7 @@ export function registerTelegramTools(pi: ExtensionAPI) {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (!telegramSessionExists()) return notConnectedResult();
 
-      // Skip confirmation if pre-approved (e.g., from webapp action items)
+      // Skip confirmation if pre-approved (e.g., from webapp workflow steps)
       if (!params.confirmed) {
         const ok = await ctx.ui.confirm(
           "Send Telegram Message",
@@ -636,7 +636,7 @@ export function registerTelegramTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "telegram_digest",
     label: "Telegram Digest",
-    description: "Fetch all new messages since the last digest across your Telegram chats. Uses watermarks to track what's been processed — won't repeat messages even if you've read them in the Telegram app. Returns messages grouped by chat for the LLM to extract action items, followups, and mentions.",
+    description: "Fetch all new messages since the last digest across your Telegram chats. Uses watermarks to track what's been processed — won't repeat messages even if you've read them in the Telegram app. Returns messages grouped by chat for the LLM to extract workflow steps, followups, and mentions.",
     parameters: Type.Object({
       chats: Type.Optional(Type.Array(Type.String(), { description: "Only digest these chats (default: all with unread)" })),
       limit: Type.Optional(Type.Number({ description: "Max messages per chat (default: 50)" })),

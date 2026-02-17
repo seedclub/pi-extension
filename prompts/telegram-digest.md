@@ -1,6 +1,6 @@
 # Telegram Digest
 
-Run my daily Telegram digest and surface action items in the webapp.
+Run my daily Telegram digest and surface workflow steps in the webapp.
 
 ## Steps
 
@@ -34,7 +34,7 @@ Important discussions, news, or alpha worth knowing about. Keep to 1-2 sentences
 ### 📊 Stats
 - Chats processed: X
 - New messages: Y
-- Action items: Z
+- Workflow steps created: Z
 
 ## Guidelines
 

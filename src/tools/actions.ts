@@ -42,7 +42,7 @@ function renderCreateCall(args: any, theme: any): Text {
   const isBatch = !!args.actions;
   const count = isBatch ? args.actions.length : 1;
   let text = theme.fg("toolTitle", theme.bold("create_action_items"));
-  text += theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""})`);
+  text += theme.fg("dim", ` (${count} step${count !== 1 ? "s" : ""})`);
   return new Text(text, 0, 0);
 }
 
@@ -55,7 +55,7 @@ function renderCreateResult(result: any, { expanded }: any, theme: any): Text {
   const actions = details?.actions || (details?.action ? [details.action] : []);
   const batchId = details?.batchId;
 
-  let text = theme.fg("success", `✓ Created ${actions.length} action item${actions.length !== 1 ? "s" : ""}`);
+  let text = theme.fg("success", `✓ Created ${actions.length} workflow step${actions.length !== 1 ? "s" : ""}`);
   if (batchId) text += theme.fg("dim", ` (batch: ${batchId.slice(0, 12)}…)`);
 
   if (expanded) {
@@ -120,11 +120,11 @@ function renderPollResult(result: any, { expanded }: any, theme: any): Text {
 export function registerActionTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "create_action_items",
-    label: "Create Action Items",
+    label: "Create Workflow Steps",
     description:
-      "Create action items that surface in the Seed Network webapp for the user to approve, reject, or customize. " +
+      "Create workflow steps that surface in the Seed Network webapp for the user to approve, reject, or customize. " +
       "Use after telegram digests, signal tending, or any workflow that produces actionable items. " +
-      "Accepts a single action or a batch. Each action has a type, title, optional description, " +
+      "Accepts a single step or a batch. Each step has a type, title, optional description, " +
       "suggested action, source context, and an agent command to execute when approved.\n\n" +
       "Multi-step workflows: steps sharing a workflowId are sequentially gated — " +
       "step N cannot be approved until step N-1 is completed. " +
@@ -216,7 +216,7 @@ export function registerActionTools(pi: ExtensionAPI) {
             })
           ),
         }),
-        { description: "Array of action items to create (max 50)" }
+        { description: "Array of workflow steps to create (max 50)" }
       ),
     }),
     renderCall: renderCreateCall,
@@ -230,7 +230,7 @@ export function registerActionTools(pi: ExtensionAPI) {
           result = await api.post("/workflows", { actions: params.actions });
         }
 
-        // Emit relay event so the webapp can instantly refresh action items
+        // Emit relay event so the webapp can instantly refresh workflow steps
         const createdActions = result.actions || (result.action ? [result.action] : []);
         if (createdActions.length > 0) {
           emitRelayEvent("actions_created", {
@@ -250,10 +250,10 @@ export function registerActionTools(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "poll_action_responses",
-    label: "Poll Action Responses",
+    label: "Poll Workflow Responses",
     description:
-      "Check for user responses to previously created action items. " +
-      "Returns items that have been approved, rejected, or given custom responses " +
+      "Check for user responses to previously created workflow steps. " +
+      "Returns steps that have been approved, rejected, or given custom responses " +
       "but not yet acknowledged by the agent. After processing responses, " +
       "acknowledge them so they don't appear again.",
     parameters: Type.Object({
@@ -297,11 +297,11 @@ export function registerActionTools(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "acknowledge_actions",
-    label: "Acknowledge Actions",
+    label: "Acknowledge Workflow Steps",
     description:
-      "Mark action items as acknowledged after the agent has executed them. " +
-      "Call this AFTER successfully executing approved actions to prevent them " +
-      "from appearing again on the next poll. Pass the IDs of the items that " +
+      "Mark workflow steps as acknowledged after the agent has executed them. " +
+      "Call this AFTER successfully executing approved steps to prevent them " +
+      "from appearing again on the next poll. Pass the IDs of the steps that " +
       "were successfully processed, along with execution results.\n\n" +
       "Each result should include:\n" +
       "- status: 'success' or 'error'\n" +
@@ -311,7 +311,7 @@ export function registerActionTools(pi: ExtensionAPI) {
       "- toolName: which tool was executed",
     parameters: Type.Object({
       ids: Type.Array(Type.String(), {
-        description: "IDs of action items to acknowledge",
+        description: "IDs of workflow steps to acknowledge",
       }),
       results: Type.Optional(
         Type.Record(
@@ -343,7 +343,7 @@ export function registerActionTools(pi: ExtensionAPI) {
       const count = args.ids?.length || 0;
       const hasResults = !!args.results;
       let text = theme.fg("toolTitle", theme.bold("acknowledge_actions"));
-      text += theme.fg("dim", ` (${count} item${count !== 1 ? "s" : ""}${hasResults ? " with results" : ""})`);
+      text += theme.fg("dim", ` (${count} step${count !== 1 ? "s" : ""}${hasResults ? " with results" : ""})`);
       return new Text(text, 0, 0);
     },
     renderResult: (result: any, _opts: any, theme: any) => {
