@@ -195,6 +195,26 @@ export function registerActionTools(pi: ExtensionAPI) {
                 "If a step with this key already exists, the existing step is returned.",
             })
           ),
+          // Phase label — groups steps within a workflow into named phases.
+          // E.g., "intro", "meeting", "deal", "follow-up". Steps with the same
+          // phase are visually grouped in the UI. A workflow can span multiple phases.
+          phase: Type.Optional(
+            Type.String({
+              description: 'Phase label for this step: "intro", "meeting", "deal", "follow-up", etc.',
+            })
+          ),
+          // Workflow metadata — set on the first step to define display metadata for the whole workflow.
+          // Can be updated later by providing it on a subsequent step (e.g., to update the oneLiner).
+          workflowMetadata: Type.Optional(
+            Type.Object({
+              label: Type.String({
+                description: "Workflow label, typically the contact or company name (e.g., 'Alice (Acme Corp)')",
+              }),
+              oneLiner: Type.String({
+                description: "Short context summary (e.g., 'Pre-seed climate tech, via Bob')",
+              }),
+            })
+          ),
         }),
         { description: "Array of action items to create (max 50)" }
       ),
