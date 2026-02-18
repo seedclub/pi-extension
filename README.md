@@ -19,6 +19,12 @@ pi install git:git@github.com:seedclub/pi-extension
 
 This is a terminal command — no pi session needed. The extension is available the next time you start pi.
 
+**Already installed?** Pull the latest version:
+
+```bash
+pi update
+```
+
 ---
 
 ## Step 1 — Connect to Seed Network
