@@ -19,10 +19,16 @@ pi install git:git@github.com:seedclub/pi-extension
 
 This is a terminal command — no pi session needed. The extension is available the next time you start pi.
 
-**Already installed?** Pull the latest version:
+**Already installed?** Pull the latest version from inside pi:
+
+```
+/seed-update
+```
+
+Or from the terminal:
 
 ```bash
-pi update
+cd ~/.pi/agent/git/github.com/seedclub/pi-extension && git pull
 ```
 
 ---
@@ -106,6 +112,7 @@ Clears your API token and relay config. Re-run `/seed-connect` to reconnect.
 | Command | What it does |
 |---------|-------------|
 | `/seed-connect [token]` | Connect to Seed Network (browser flow, or paste token directly) |
+| `/seed-update` | Pull the latest version of the extension |
 | `/seed-logout` | Disconnect from Seed Network |
 | `/seed-status` | Show current Seed Network connection |
 | `/telegram-login` | Connect your Telegram account (interactive) |
@@ -115,6 +122,9 @@ Clears your API token and relay config. Re-run `/seed-connect` to reconnect.
 ---
 
 ## Troubleshooting
+
+**Commands seem outdated or missing after installing**
+Pi caches the extension at `~/.pi/agent/git/github.com/seedclub/pi-extension/`. Running `pi install` again won't update it if the directory already exists. Run `/seed-update` from inside pi, or restart pi after pulling, to pick up changes.
 
 **`/seed-connect` opens a browser but nothing happens in pi**
 The callback server runs on a random local port. Make sure nothing is blocking localhost connections, then try again.

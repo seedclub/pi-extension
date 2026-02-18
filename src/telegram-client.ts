@@ -92,10 +92,11 @@ export async function runTelegramScript(
   // Parse stdout as JSON
   const stdout = result.stdout.trim();
   if (!stdout) {
-    if (result.stderr) {
-      throw new Error(`Script error: ${result.stderr.slice(0, 500)}`);
-    }
-    throw new Error("Script produced no output");
+    const details = [
+      result.stderr ? `stderr: ${result.stderr.slice(0, 500)}` : null,
+      `exit code: ${result.code}`,
+    ].filter(Boolean).join("; ");
+    throw new Error(`Script produced no output (${details})`);
   }
 
   try {
