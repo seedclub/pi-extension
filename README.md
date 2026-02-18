@@ -12,11 +12,9 @@ Then in pi:
 
 ```
 /seed-connect
-/add @naval, @paulg, Stripe, AI safety
-/tend
+/telegram-login
 ```
 
-That's it. `/seed-connect` opens your browser to sign in. `/add` takes anything — handles, names, URLs, topics. Or pass a token directly: `/seed-connect sn_abc123`
 
 ## Commands
 
