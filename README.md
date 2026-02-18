@@ -7,6 +7,11 @@ The Seed Network agent for [pi](https://buildwithpi.com) — reads your Telegram
 ## Prerequisites
 
 - **pi** installed ([buildwithpi.com](https://buildwithpi.com))
+- **uv** (Python package manager) — required for Telegram integration
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+  After installing, restart your terminal so `uv` is on your PATH. Verify with `uv --version`.
 - A Seed Network account at [beta.seedclub.com](https://beta.seedclub.com)
 
 ---
@@ -128,6 +133,12 @@ Pi caches the extension at `~/.pi/agent/git/github.com/seedclub/pi-extension/`. 
 
 **`/seed-connect` opens a browser but nothing happens in pi**
 The callback server runs on a random local port. Make sure nothing is blocking localhost connections, then try again.
+
+**`/telegram-login` fails with "uv is not installed"**
+Install uv with `curl -LsSf https://astral.sh/uv/install.sh | sh` and restart your terminal. See [Prerequisites](#prerequisites).
+
+**`/telegram-login` fails with "Script produced no output"**
+This usually means `uv` is not installed or not on your PATH. Install it (see above) and restart your terminal.
 
 **`/telegram-login` fails with "Telegram app credentials not configured"**
 You need to run `/seed-connect` first — it fetches the shared app credentials automatically.

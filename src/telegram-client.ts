@@ -75,6 +75,15 @@ export async function runTelegramScript(
   const scriptPath = getScriptPath(scriptName);
   const cwd = getTelegramDir();
 
+  // Check that uv is available before trying to run scripts
+  const uvCheck = await exec("which", ["uv"], { timeout: 5000, cwd });
+  if (uvCheck.code !== 0) {
+    throw new Error(
+      "uv (Python package manager) is not installed. " +
+      "Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    );
+  }
+
   const result = await exec(
     "uv",
     ["run", "--project", cwd, scriptPath, ...args],
