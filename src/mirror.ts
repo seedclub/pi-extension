@@ -54,7 +54,7 @@ export function emitRelayEvent(type: string, payload: Record<string, unknown>) {
 let sharedClearInFlight: ((ids: string[]) => void) | null = null;
 
 /**
- * Clear in-flight tracking for the given step IDs (called after acknowledge_actions succeeds).
+ * Clear in-flight tracking for the given step IDs (called after acknowledge_workflow_steps succeeds).
  */
 export function clearInFlightSteps(ids: string[]) {
   sharedClearInFlight?.(ids);
@@ -77,7 +77,7 @@ export function registerMirror(pi: ExtensionAPI) {
 
   // Track in-flight step IDs to prevent duplicate execution.
   // A step is added when we inject the followUp message, and removed
-  // when it's acknowledged via acknowledge_actions or after a timeout.
+  // when it's acknowledged via acknowledge_workflow_steps or after a timeout.
   const inFlightSteps = new Set<string>();
   const IN_FLIGHT_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -122,7 +122,7 @@ export function registerMirror(pi: ExtensionAPI) {
     const { tool, args, prompt } = action.agentCommand;
 
     const ackInstructions =
-      `After execution, acknowledge the action by calling acknowledge_actions with id "${action.id}" and include a result:\n` +
+      `After execution, acknowledge the step by calling acknowledge_workflow_steps with id "${action.id}" and include a result:\n` +
       `- results: { "${action.id}": { status: "success", summary: "<what happened>", toolName: "${tool || "agent"}" } }\n` +
       `- If it failed: { "${action.id}": { status: "error", error: "<what went wrong>", toolName: "${tool || "agent"}" } }`;
 

@@ -18,7 +18,7 @@ import { registerEventTools } from "./tools/events";
 import { registerTwitterTools } from "./tools/twitter";
 import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
-import { registerActionTools } from "./tools/actions";
+import { registerWorkflowTools } from "./tools/workflows";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase, fetchMirrorConfig, storeMirrorConfig, clearMirrorConfig } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
@@ -37,7 +37,7 @@ export default function (pi: ExtensionAPI) {
   registerTwitterTools(pi);
   registerTelegramTools(pi);
   registerUtilityTools(pi);
-  registerActionTools(pi);
+  registerWorkflowTools(pi);
 
   // --- Session mirror (streams events to web app) ---
   registerMirror(pi);

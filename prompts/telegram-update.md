@@ -6,7 +6,7 @@ Process Telegram messages and surface workflow steps in the webapp, then execute
 
 First, check if there are any previously-approved workflow steps waiting for execution.
 
-1. Call `poll_action_responses` (with `acknowledge: false`) to get all unacknowledged user responses
+1. Call `poll_workflow_responses` (with `acknowledge: false`) to get all unacknowledged user responses
 2. For each response:
 
 **Approved** — Execute the action described in `agentCommand.prompt` (or use `agentCommand.tool` + `agentCommand.args` if specified):
@@ -19,7 +19,7 @@ First, check if there are any previously-approved workflow steps waiting for exe
 **Custom Response** — Read `userResponse` and execute according to their instruction instead of the original suggestion.
 
 3. If an approved step seems risky or unclear, mention it in the summary rather than executing blindly.
-4. **After successfully executing each step**, call `acknowledge_actions` with the IDs of the items you processed. This ensures items aren't lost if execution is interrupted. Acknowledge rejected items too since they don't need further action.
+4. **After successfully executing each step**, call `acknowledge_workflow_steps` with the IDs of the items you processed. This ensures items aren't lost if execution is interrupted. Acknowledge rejected items too since they don't need further action.
 
 ## Phase 2: Digest New Messages
 
@@ -29,7 +29,7 @@ First, check if there are any previously-approved workflow steps waiting for exe
 
 ## Phase 3: Create Workflow Steps
 
-For every actionable item found, call `create_action_items` with a single batch.
+For every actionable item found, call `create_workflow_steps` with a single batch.
 Map each item to the right type:
 
 - **intro_request** — Someone asked for an introduction to someone else

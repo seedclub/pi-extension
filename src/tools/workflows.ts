@@ -5,7 +5,7 @@ import { Text } from "@mariozechner/pi-tui";
 import { api, NotConnectedError } from "../api-client";
 import { emitRelayEvent, clearInFlightSteps } from "../mirror";
 
-const actionItemTypes = [
+const stepTypes = [
   "intro_request",
   "follow_up",
   "response_needed",
@@ -41,7 +41,7 @@ function jsonResult(data: any) {
 function renderCreateCall(args: any, theme: any): Text {
   const isBatch = !!args.actions;
   const count = isBatch ? args.actions.length : 1;
-  let text = theme.fg("toolTitle", theme.bold("create_action_items"));
+  let text = theme.fg("toolTitle", theme.bold("create_workflow_steps"));
   text += theme.fg("dim", ` (${count} step${count !== 1 ? "s" : ""})`);
   return new Text(text, 0, 0);
 }
@@ -72,7 +72,7 @@ function renderCreateResult(result: any, { expanded }: any, theme: any): Text {
 }
 
 function renderPollCall(args: any, theme: any): Text {
-  let text = theme.fg("toolTitle", theme.bold("poll_action_responses"));
+  let text = theme.fg("toolTitle", theme.bold("poll_workflow_responses"));
   if (args.batchId) text += theme.fg("dim", ` batch: ${args.batchId.slice(0, 12)}…`);
   return new Text(text, 0, 0);
 }
@@ -117,9 +117,9 @@ function renderPollResult(result: any, { expanded }: any, theme: any): Text {
 
 // --- Tool Registration ---
 
-export function registerActionTools(pi: ExtensionAPI) {
+export function registerWorkflowTools(pi: ExtensionAPI) {
   pi.registerTool({
-    name: "create_action_items",
+    name: "create_workflow_steps",
     label: "Create Workflow Steps",
     description:
       "Create workflow steps that surface in the Seed Network webapp for the user to approve, reject, or customize. " +
@@ -133,9 +133,9 @@ export function registerActionTools(pi: ExtensionAPI) {
     parameters: Type.Object({
       actions: Type.Array(
         Type.Object({
-          type: StringEnum(actionItemTypes, {
+          type: StringEnum(stepTypes, {
             description:
-              "Action type: intro_request, follow_up, response_needed, approval_needed, task, custom",
+              "Step type: intro_request, follow_up, response_needed, approval_needed, task, custom",
           }),
           title: Type.String({
             description: "Short summary shown in card, e.g. 'Alice asked for intro to Bob'",
@@ -176,11 +176,11 @@ export function registerActionTools(pi: ExtensionAPI) {
           ),
           // Workflow chaining — use these to create multi-step sequential workflows.
           // The first step generates a workflowId; subsequent steps reuse it with incrementing stepIndex.
-          // If workflowId is omitted, the server auto-generates one (every action belongs to a workflow).
+          // If workflowId is omitted, the server auto-generates one (every step belongs to a workflow).
           workflowId: Type.Optional(
             Type.String({
               description:
-                "Workflow ID grouping multi-step actions. Generate one for step 0, reuse for subsequent steps.",
+                "Workflow ID grouping multi-step workflows. Generate one for step 0, reuse for subsequent steps.",
             })
           ),
           stepIndex: Type.Optional(
@@ -249,7 +249,7 @@ export function registerActionTools(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "poll_action_responses",
+    name: "poll_workflow_responses",
     label: "Poll Workflow Responses",
     description:
       "Check for user responses to previously created workflow steps. " +
@@ -296,7 +296,7 @@ export function registerActionTools(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "acknowledge_actions",
+    name: "acknowledge_workflow_steps",
     label: "Acknowledge Workflow Steps",
     description:
       "Mark workflow steps as acknowledged after the agent has executed them. " +
@@ -335,14 +335,14 @@ export function registerActionTools(pi: ExtensionAPI) {
               Type.String({ description: "Which tool was executed" })
             ),
           }),
-          { description: "Map of action ID → execution result" }
+          { description: "Map of step ID → execution result" }
         )
       ),
     }),
     renderCall: (args: any, theme: any) => {
       const count = args.ids?.length || 0;
       const hasResults = !!args.results;
-      let text = theme.fg("toolTitle", theme.bold("acknowledge_actions"));
+      let text = theme.fg("toolTitle", theme.bold("acknowledge_workflow_steps"));
       text += theme.fg("dim", ` (${count} step${count !== 1 ? "s" : ""}${hasResults ? " with results" : ""})`);
       return new Text(text, 0, 0);
     },

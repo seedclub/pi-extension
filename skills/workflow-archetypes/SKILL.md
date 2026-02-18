@@ -2,7 +2,7 @@
 name: workflow-archetypes
 description: |
   Workflow templates for pre-seed VC deal flow on Telegram. Use when creating
-  multi-step workflows via create_action_items. Covers intros, deal intake,
+  multi-step workflows via create_workflow_steps. Covers intros, deal intake,
   meetings, and follow-ups. Load this skill before creating any multi-step workflow.
 ---
 
@@ -145,7 +145,7 @@ When a workflow transitions to a new phase, add steps to the same `workflowId` w
 
 ```
 // Workflow started as intro, now scheduling a meeting
-create_action_items({
+create_workflow_steps({
   actions: [{
     workflowId: "existing-workflow-id",
     stepIndex: 3,
