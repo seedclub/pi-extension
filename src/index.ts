@@ -9,32 +9,18 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
-import { registerDealTools } from "./tools/deals";
-import { registerCompanyTools } from "./tools/companies";
-import { registerSignalTools } from "./tools/signals";
-import { registerResearchTools } from "./tools/research";
-import { registerEnrichmentTools } from "./tools/enrichments";
-import { registerEventTools } from "./tools/events";
-import { registerTwitterTools } from "./tools/twitter";
 import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
 import { registerWorkflowTools } from "./tools/workflows";
 import { getCurrentUser } from "./tools/utility";
 import { getStoredToken, storeToken, getApiBase, fetchMirrorConfig, storeMirrorConfig, clearMirrorConfig } from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
-import { telegramSessionExists, loadTelegramSession, getScriptPath, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
+import { telegramSessionExists, loadTelegramSession, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
 import { unlink } from "node:fs/promises";
 import { registerMirror } from "./mirror";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
-  registerDealTools(pi);
-  registerCompanyTools(pi);
-  registerSignalTools(pi);
-  registerResearchTools(pi);
-  registerEnrichmentTools(pi);
-  registerEventTools(pi);
-  registerTwitterTools(pi);
   registerTelegramTools(pi);
   registerUtilityTools(pi);
   registerWorkflowTools(pi);
