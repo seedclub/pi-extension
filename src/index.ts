@@ -1,7 +1,7 @@
 /**
  * Seed Network extension for pi
  *
- * Install: pi install git@github.com:seedclub/pi-extension
+ * Install: pi install git:git@github.com:seedclub/pi-extension
  * Connect: /seed-connect
  * Go:      /tend, /source, /enrich, etc.
  */

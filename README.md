@@ -1,83 +1,123 @@
-# Seed Network Extension for Pi
+# Seed Network Pi Extension
 
-Deal sourcing, research, signal tracking, and Twitter/X integration for [Seed Network](https://seed.network).
+The Seed Network agent for [pi](https://buildwithpi.com) — reads your Telegram, surfaces deal flow, and routes approvals through the Seed Network webapp.
 
-## Quick Start
+---
+
+## Prerequisites
+
+- **pi** installed ([buildwithpi.com](https://buildwithpi.com))
+- A Seed Network account at [beta.seedclub.com](https://beta.seedclub.com)
+
+---
+
+## Installation
 
 ```bash
-pi install git@github.com:seedclub/pi-extension
+pi install git:git@github.com:seedclub/pi-extension
 ```
 
-Then in pi:
+This is a terminal command — no pi session needed. The extension is available the next time you start pi.
+
+---
+
+## Step 1 — Connect to Seed Network
+
+Run in pi:
 
 ```
 /seed-connect
+```
+
+This opens your browser to sign in. Once you approve, pi picks up the token automatically and you'll see `🌱 you@email.com` in the status bar.
+
+Alternatively, pass a token directly if you have one:
+
+```
+/seed-connect sn_abc123...
+```
+
+---
+
+## Step 2 — Connect Telegram
+
+Run in pi:
+
+```
 /telegram-login
 ```
 
+Pi will walk you through it interactively:
 
-## Commands
+1. **Phone number** — enter your Telegram phone number in international format (e.g. `+14155550123`)
+2. **Verification code** — Telegram sends a code to your Telegram app (not SMS by default). Enter it when prompted.
+3. **2FA password** — if your account has two-factor authentication enabled, you'll be prompted for that too.
 
-| Command | Description |
-|---------|-------------|
-| `/seed-connect [token]` | Connect (opens browser, or pass token directly) |
-| `/seed-logout` | Disconnect |
-| `/seed-status` | Check connection |
+When done you'll see `📱 +1415***0123` in the status bar.
 
-## Workflows (Prompt Templates)
+> Your Telegram session is stored at `~/.config/seed-network/telegram/session.json`. Pi reads and writes Telegram messages as your personal account.
 
-| Template | Description |
-|----------|-------------|
-| `/add <anything>` | Track something — Twitter handle, company, person, blog, podcast, topic, URL |
-| `/tend` | Check signals for events and updates |
-| `/source <company>` | Research and create a deal submission |
-| `/enrich <deal>` | Add information to an existing deal |
-| `/activity` | View your contributions |
-| `/import-bookmarks` | Import Twitter/X bookmarks as signals |
-| `/import-follows` | Import Twitter/X following as signals |
-| `/twitter-check` | Verify Twitter/X authentication |
-| `/twitter-news` | Get trending Twitter/X news |
+---
 
-## Scripts
+## Step 3 — Check status
 
-### Fetch RSS/Atom Feed
-
-```bash
-scripts/fetch-feed.js <url> [--limit 10]
+```
+/seed-status       → shows your Seed Network email and API base
+/telegram-status   → shows your connected phone number
 ```
 
-Fetch and parse an RSS/Atom/JSON feed. Returns JSON with `title`, `link`, and `items[]`.
-Each item has: `title`, `link`, `pubDate`, `description` (truncated), `author`, `guid`, `categories`.
+---
 
-Used during tending to check blog/newsletter/podcast/subreddit/GitHub signals that have a `feedUrl` in their metadata.
+## Disconnecting
 
-## Tools
+### Disconnect Telegram only
 
-**Deals**: `create_deal`, `update_deal`, `get_deal`, `list_deals`, `search_deals`
+```
+/telegram-logout
+```
 
-**Companies**: `create_company`, `update_company`, `get_company`, `list_companies`, `search_companies`
+Revokes the session on Telegram's servers (it disappears from Settings → Devices → Active Sessions) and removes the local session file. You can reconnect any time with `/telegram-login`.
 
-**Signals**: `create_signal`, `batch_create_signals`, `get_signal`, `list_signals`, `search_signals`, `delete_signal`, `add_signal_relation`
+### Disconnect Seed Network only
 
-**Research**: `save_research`, `get_research`, `query_research`, `link_research`
+```
+/seed-logout
+```
 
-**Enrichments**: `add_enrichment`, `get_enrichments`, `cancel_enrichment`
+Clears your API token and relay config. Re-run `/seed-connect` to reconnect.
 
-**Events**: `create_event`, `batch_create_events`, `list_events`, `get_signals_to_tend`, `mark_signal_tended`, `batch_mark_signals_tended`
+### Disconnect everything
 
-**Twitter/X**: `twitter_check`, `twitter_whoami`, `twitter_following`, `twitter_followers`, `twitter_bookmarks`, `twitter_news`, `twitter_search`, `twitter_likes`, `twitter_read`
+```
+/seed-logout
+/telegram-logout
+```
 
-**Utility**: `get_current_user`
+---
 
-## Configuration
+## Commands Reference
 
-| Variable | Description |
-|----------|-------------|
-| `SEED_NETWORK_TOKEN` | API token (alternative to `/seed-connect`) |
-| `SEED_NETWORK_API` | API base URL (default: https://beta.seedclub.com) |
+| Command | What it does |
+|---------|-------------|
+| `/seed-connect [token]` | Connect to Seed Network (browser flow, or paste token directly) |
+| `/seed-logout` | Disconnect from Seed Network |
+| `/seed-status` | Show current Seed Network connection |
+| `/telegram-login` | Connect your Telegram account (interactive) |
+| `/telegram-logout` | Disconnect Telegram and revoke the session |
+| `/telegram-status` | Show connected Telegram phone number |
 
-Twitter/X tools read cookies from Safari, Chrome, or Firefox automatically — no API keys needed.
+---
 
-## License
+## Troubleshooting
 
-UNLICENSED
+**`/seed-connect` opens a browser but nothing happens in pi**
+The callback server runs on a random local port. Make sure nothing is blocking localhost connections, then try again.
+
+**`/telegram-login` fails with "Telegram app credentials not configured"**
+You need to run `/seed-connect` first — it fetches the shared app credentials automatically.
+
+**`/telegram-login` fails with "FLOOD_WAIT"**
+Telegram is rate-limiting code requests. Wait the number of seconds shown, then try again.
+
+**Telegram tools return "Not connected"**
+Your session may have been revoked (e.g. you logged out from another device). Run `/telegram-logout` then `/telegram-login` to re-authenticate.
