@@ -13,10 +13,27 @@ import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
 import { registerWorkflowTools } from "./tools/workflows";
 import { getCurrentUser } from "./tools/utility";
-import { getStoredToken, storeToken, getApiBase, fetchMirrorConfig, storeMirrorConfig, clearMirrorConfig } from "./auth";
+import {
+  getStoredToken,
+  storeToken,
+  getApiBase,
+  fetchMirrorConfig,
+  storeMirrorConfig,
+  clearMirrorConfig,
+  fetchTelegramAppConfig,
+  storeTelegramAppConfig,
+  clearTelegramAppConfig,
+  getTelegramAppConfig,
+} from "./auth";
 import { setCachedToken, clearCredentials } from "./api-client";
-import { telegramSessionExists, loadTelegramSession, getTelegramDir, SESSION_PATH as TELEGRAM_SESSION_PATH } from "./telegram-client";
-import { unlink } from "node:fs/promises";
+import {
+  telegramSessionExists,
+  loadTelegramSession,
+  runTelegramScript,
+  SESSION_PATH as TELEGRAM_SESSION_PATH,
+} from "./telegram-client";
+import { unlink, rm } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { registerMirror } from "./mirror";
 
 export default function (pi: ExtensionAPI) {
@@ -27,6 +44,10 @@ export default function (pi: ExtensionAPI) {
 
   // --- Session mirror (streams events to web app) ---
   registerMirror(pi);
+
+  // Wrap pi.exec for use with runTelegramScript
+  const exec = (cmd: string, args: string[], opts?: { timeout?: number; cwd?: string; signal?: AbortSignal }) =>
+    pi.exec(cmd, args, opts);
 
   // --- Commands ---
 
@@ -55,9 +76,7 @@ export default function (pi: ExtensionAPI) {
 
       // Open the URL in the default browser
       const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      pi.exec(openCmd, [authUrl]).catch(() => {
-        // If open fails, the URL is still shown in the notification below
-      });
+      pi.exec(openCmd, [authUrl]).catch(() => {});
 
       try {
         const result = await waitForCallback(port, state, apiBase);
@@ -74,6 +93,7 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       await clearCredentials();
       await clearMirrorConfig();
+      await clearTelegramAppConfig();
       ctx.ui.setStatus("seed", undefined);
       ctx.ui.setStatus("mirror", undefined);
       ctx.ui.notify("Logged out of Seed Network", "info");
@@ -97,44 +117,117 @@ export default function (pi: ExtensionAPI) {
   // --- Telegram Commands ---
 
   pi.registerCommand("telegram-login", {
-    description: "Connect to Telegram (interactive auth flow)",
+    description: "Connect your Telegram account",
     handler: async (_args, ctx) => {
       // Check if already connected
       if (telegramSessionExists()) {
         const session = await loadTelegramSession();
         if (session) {
-          const keep = await ctx.ui.confirm(
+          const redo = await ctx.ui.confirm(
             "Already Connected",
-            `You're already connected to Telegram (${session.phone}). Re-authenticate?`
+            `Already connected as ${session.phone}. Re-authenticate?`
           );
-          if (!keep) return;
+          if (!redo) return;
         }
       }
 
-      const phone = await ctx.ui.input("Phone number:", "+1234567890");
-      if (!phone) { ctx.ui.notify("Cancelled", "info"); return; }
+      // Ensure we have app credentials before starting
+      const appConfig = await getTelegramAppConfig();
+      if (!appConfig) {
+        ctx.ui.notify(
+          "Telegram app credentials not configured. Run /seed-connect first, or set TELEGRAM_API_ID and TELEGRAM_API_HASH.",
+          "error"
+        );
+        return;
+      }
 
-      // login.py reads API credentials from TELEGRAM_API_ID / TELEGRAM_API_HASH env vars,
-      // or prompts interactively. Get credentials at https://my.telegram.org/apps
-      const cwd = getTelegramDir();
+      // Step 1: get phone number
+      const phone = await ctx.ui.input("Your Telegram phone number:", "+1234567890");
+      if (!phone?.trim()) { ctx.ui.notify("Cancelled", "info"); return; }
 
-      ctx.ui.notify(
-        `Complete login in your terminal:\n\n  cd ${cwd} && TELEGRAM_API_ID=<your_id> TELEGRAM_API_HASH=<your_hash> uv run scripts/login.py --phone ${phone.trim()}\n\nGet API credentials at https://my.telegram.org/apps\nThen run /reload here to pick up the session.`,
-        "info"
-      );
+      // Step 2: request OTP — this triggers Telegram to send a code to the user's app/SMS
+      ctx.ui.notify("Sending verification code to your Telegram...", "info");
+      let requestResult: any;
+      try {
+        requestResult = await runTelegramScript(exec, "login.py", ["request-code", "--phone", phone.trim()], { timeout: 20000 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.ui.notify(`Failed to send code: ${msg}`, "error");
+        return;
+      }
+
+      if (requestResult?.error) {
+        ctx.ui.notify(`Failed to send code: ${requestResult.error}`, "error");
+        return;
+      }
+
+      // Step 3: collect OTP from user
+      const code = await ctx.ui.input("Enter the code Telegram sent you:");
+      if (!code?.trim()) { ctx.ui.notify("Cancelled", "info"); return; }
+
+      // Step 4: sign in with OTP
+      let signInResult: any;
+      try {
+        signInResult = await runTelegramScript(exec, "login.py", ["sign-in", "--code", code.trim()], { timeout: 20000 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.ui.notify(`Sign-in failed: ${msg}`, "error");
+        return;
+      }
+
+      if (signInResult?.success) {
+        ctx.ui.notify(`✓ Connected to Telegram as ${signInResult.name}`, "success");
+        ctx.ui.setStatus("telegram", `📱 ${signInResult.phone}`);
+        return;
+      }
+
+      // Step 5 (if needed): 2FA
+      if (signInResult?.status === "2fa_required") {
+        const password = await ctx.ui.input("Enter your Telegram 2FA password:");
+        if (!password?.trim()) { ctx.ui.notify("Cancelled", "info"); return; }
+
+        let twoFaResult: any;
+        try {
+          twoFaResult = await runTelegramScript(exec, "login.py", ["sign-in-2fa", "--password", password], { timeout: 20000 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          ctx.ui.notify(`2FA failed: ${msg}`, "error");
+          return;
+        }
+
+        ctx.ui.notify(`✓ Connected to Telegram as ${twoFaResult.name}`, "success");
+        ctx.ui.setStatus("telegram", `📱 ${twoFaResult.phone}`);
+        return;
+      }
+
+      ctx.ui.notify(`Sign-in failed: unexpected response from login script`, "error");
     },
   });
 
   pi.registerCommand("telegram-logout", {
     description: "Disconnect from Telegram",
     handler: async (_args, ctx) => {
-      try {
-        await unlink(TELEGRAM_SESSION_PATH);
-        ctx.ui.setStatus("telegram", undefined);
-        ctx.ui.notify("Logged out of Telegram", "info");
-      } catch {
-        ctx.ui.notify("No Telegram session found", "info");
+      const telegramDir = dirname(TELEGRAM_SESSION_PATH);
+      const pendingPath = join(telegramDir, "pending.json");
+      const hadSession = telegramSessionExists();
+
+      if (hadSession) {
+        // Best-effort: revoke the session on Telegram's servers so it disappears
+        // from the user's active sessions list in Telegram Settings > Devices.
+        try {
+          await runTelegramScript(exec, "logout.py", ["--revoke"], { timeout: 10000 });
+        } catch {
+          // Unreachable or already invalid — fine, we'll delete locally below.
+        }
       }
+
+      // Always clean up local files regardless of revocation outcome
+      for (const p of [TELEGRAM_SESSION_PATH, pendingPath]) {
+        try { await rm(p, { force: true }); } catch {}
+      }
+
+      ctx.ui.setStatus("telegram", undefined);
+      ctx.ui.notify(hadSession ? "Logged out of Telegram" : "No Telegram session found", "info");
     },
   });
 
@@ -161,7 +254,6 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.setStatus("seed", "🌱 Connected (env)");
     }
 
-    // Telegram status
     if (telegramSessionExists()) {
       const session = await loadTelegramSession();
       if (session) {
@@ -193,9 +285,14 @@ export default function (pi: ExtensionAPI) {
     const mirrorConfig = await fetchMirrorConfig(token, apiBase);
     if (mirrorConfig) {
       await storeMirrorConfig(mirrorConfig);
-      // Reconnect mirror with new config (e.g., new session key / token)
       pi.events.emit("seed:mirror:reconnect");
       ctx.ui.notify("🪞 Mirror relay configured", "info");
+    }
+
+    // Fetch and store Telegram app credentials (succeeds for any authenticated user)
+    const telegramAppConfig = await fetchTelegramAppConfig(token, apiBase);
+    if (telegramAppConfig) {
+      await storeTelegramAppConfig(telegramAppConfig.apiId, telegramAppConfig.apiHash);
     }
   }
 }

@@ -12,6 +12,7 @@ import { readFile, writeFile, mkdir, unlink, chmod } from "node:fs/promises";
 const CONFIG_DIR = join(homedir(), ".config", "seed-network");
 const TOKEN_FILE = join(CONFIG_DIR, "token");
 const MIRROR_FILE = join(CONFIG_DIR, "mirror");
+const TELEGRAM_APP_FILE = join(CONFIG_DIR, "telegram", "app.json");
 const DEFAULT_API_BASE = "https://beta.seedclub.com";
 const LOCAL_API_BASE = "http://localhost:3000";
 
@@ -140,6 +141,65 @@ export async function fetchMirrorConfig(apiToken: string, apiBase: string): Prom
     const data = await res.json();
     if (!data.relayUrl || !data.token) return null;
     return { relayUrl: data.relayUrl, token: data.token, session: data.session || "default" };
+  } catch {
+    return null;
+  }
+}
+
+// --- Telegram app config ---
+// Stores the shared Telegram application credentials (api_id + api_hash).
+// These identify the Seed Network app to Telegram's MTProto API.
+// Fetched once from /api/telegram/config during /seed-connect.
+
+export interface TelegramAppConfig {
+  apiId: number;
+  apiHash: string;
+  fetchedAt: string;
+}
+
+export async function getTelegramAppConfig(): Promise<TelegramAppConfig | null> {
+  // Env vars take priority — useful for local dev before /seed-connect
+  if (process.env.TELEGRAM_API_ID && process.env.TELEGRAM_API_HASH) {
+    return {
+      apiId: parseInt(process.env.TELEGRAM_API_ID, 10),
+      apiHash: process.env.TELEGRAM_API_HASH,
+      fetchedAt: "env",
+    };
+  }
+  try {
+    const content = await readFile(TELEGRAM_APP_FILE, "utf-8");
+    return JSON.parse(content) as TelegramAppConfig;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeTelegramAppConfig(apiId: number, apiHash: string): Promise<void> {
+  const dir = join(CONFIG_DIR, "telegram");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const data: TelegramAppConfig = { apiId, apiHash, fetchedAt: new Date().toISOString() };
+  await writeFile(TELEGRAM_APP_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+  try { await chmod(TELEGRAM_APP_FILE, 0o600); } catch {}
+}
+
+export async function clearTelegramAppConfig(): Promise<boolean> {
+  try { await unlink(TELEGRAM_APP_FILE); return true; } catch { return false; }
+}
+
+/**
+ * Fetch Telegram app credentials from the Seed Network API.
+ * Works for any authenticated user (not curator-restricted).
+ * Returns null if the server hasn't configured TELEGRAM_API_ID/HASH.
+ */
+export async function fetchTelegramAppConfig(apiToken: string, apiBase: string): Promise<{ apiId: number; apiHash: string } | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/telegram/config`, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.apiId || !data.apiHash) return null;
+    return { apiId: data.apiId, apiHash: data.apiHash };
   } catch {
     return null;
   }
