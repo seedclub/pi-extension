@@ -7,7 +7,7 @@ The Seed Network agent for [pi](https://buildwithpi.com) — reads your Telegram
 ## Prerequisites
 
 - **pi** installed ([buildwithpi.com](https://buildwithpi.com))
-- **uv** (Python package manager) — required for Telegram integration
+- **uv** [Python package manager](https://docs.astral.sh/uv/getting-started/installation/) — required for Telegram integration
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
