@@ -38,9 +38,9 @@ import {
   loadTwitterSession,
   clearTwitterSession,
   storeTwitterSession,
-  tryBrowserExtraction,
-  verifyCredentials,
-  SESSION_PATH as TWITTER_SESSION_PATH,
+  clearTwitterClient,
+  checkTwitterCredentials,
+  verifyManualCredentials,
 } from "./twitter-client";
 import { unlink, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -300,27 +300,24 @@ export default function (pi: ExtensionAPI) {
 
       // Step 1: Try automatic browser cookie extraction
       ctx.ui.notify("Looking for Twitter/X cookies in your browsers...", "info");
+      clearTwitterClient(); // Clear any stale cached client
 
-      let extracted: Awaited<ReturnType<typeof tryBrowserExtraction>> = null;
-      try {
-        extracted = await tryBrowserExtraction(exec);
-      } catch {
-        // Browser extraction failed — fall through to manual
-      }
-
-      if (extracted) {
-        await storeTwitterSession(extracted.session);
+      const check = await checkTwitterCredentials();
+      if (check.valid && check.user) {
+        // Session was already stored by checkTwitterCredentials
         ctx.ui.notify(
-          `✓ Connected to Twitter/X as @${extracted.session.username} (via ${extracted.session.source})`,
+          `✓ Connected to Twitter/X as @${check.user.username} (via ${check.source || "browser"})`,
           "success"
         );
-        ctx.ui.setStatus("twitter", `🐦 @${extracted.session.username}`);
+        ctx.ui.setStatus("twitter", `🐦 @${check.user.username}`);
         return;
       }
 
       // Step 2: Manual token entry
+      if (check.warnings.length > 0) {
+        ctx.ui.notify(check.warnings.join("\n"), "warning");
+      }
       ctx.ui.notify(
-        "Could not find Twitter cookies automatically.\n\n" +
         "To connect manually:\n" +
         "1. Open x.com in your browser and make sure you're logged in\n" +
         "2. Open DevTools (F12) → Application → Cookies → https://x.com\n" +
@@ -336,7 +333,7 @@ export default function (pi: ExtensionAPI) {
 
       // Step 3: Verify the tokens work
       ctx.ui.notify("Verifying credentials...", "info");
-      const user = await verifyCredentials(exec, authToken.trim(), ct0.trim());
+      const user = await verifyManualCredentials(authToken.trim(), ct0.trim());
 
       if (!user) {
         ctx.ui.notify(
