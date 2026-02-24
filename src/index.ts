@@ -12,6 +12,7 @@ import { randomBytes } from "node:crypto";
 import { registerTelegramTools } from "./tools/telegram";
 import { registerUtilityTools } from "./tools/utility";
 import { registerWorkflowTools } from "./tools/workflows";
+import { registerTwitterBookmarkTools } from "./tools/twitter-bookmarks";
 import { getCurrentUser } from "./tools/utility";
 import {
   getStoredToken,
@@ -32,6 +33,15 @@ import {
   runTelegramScript,
   SESSION_PATH as TELEGRAM_SESSION_PATH,
 } from "./telegram-client";
+import {
+  twitterSessionExists,
+  loadTwitterSession,
+  clearTwitterSession,
+  storeTwitterSession,
+  clearTwitterClient,
+  checkTwitterCredentials,
+  verifyManualCredentials,
+} from "./twitter-client";
 import { unlink, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { registerMirror } from "./mirror";
@@ -41,6 +51,7 @@ export default function (pi: ExtensionAPI) {
   registerTelegramTools(pi);
   registerUtilityTools(pi);
   registerWorkflowTools(pi);
+  registerTwitterBookmarkTools(pi);
 
   // --- Session mirror (streams events to web app) ---
   registerMirror(pi);
@@ -118,8 +129,10 @@ export default function (pi: ExtensionAPI) {
       await clearCredentials();
       await clearMirrorConfig();
       await clearTelegramAppConfig();
+      await clearTwitterSession();
       ctx.ui.setStatus("seed", undefined);
       ctx.ui.setStatus("mirror", undefined);
+      ctx.ui.setStatus("twitter", undefined);
       ctx.ui.notify("Logged out of Seed Network", "info");
     },
   });
@@ -268,6 +281,110 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // --- Twitter Commands ---
+
+  pi.registerCommand("twitter-login", {
+    description: "Connect your Twitter/X account for bookmark syncing",
+    handler: async (_args, ctx) => {
+      // Check if already connected
+      if (twitterSessionExists()) {
+        const session = await loadTwitterSession();
+        if (session) {
+          const redo = await ctx.ui.confirm(
+            "Already Connected",
+            `Already connected as @${session.username}. Re-authenticate?`
+          );
+          if (!redo) return;
+        }
+      }
+
+      // Step 1: Try automatic browser cookie extraction
+      ctx.ui.notify("Looking for Twitter/X cookies in your browsers...", "info");
+      clearTwitterClient(); // Clear any stale cached client
+
+      const check = await checkTwitterCredentials();
+      if (check.valid && check.user) {
+        // Session was already stored by checkTwitterCredentials
+        ctx.ui.notify(
+          `✓ Connected to Twitter/X as @${check.user.username} (via ${check.source || "browser"})`,
+          "success"
+        );
+        ctx.ui.setStatus("twitter", `🐦 @${check.user.username}`);
+        return;
+      }
+
+      // Step 2: Manual token entry
+      if (check.warnings.length > 0) {
+        ctx.ui.notify(check.warnings.join("\n"), "warning");
+      }
+      ctx.ui.notify(
+        "To connect manually:\n" +
+        "1. Open x.com in your browser and make sure you're logged in\n" +
+        "2. Open DevTools (F12) → Application → Cookies → https://x.com\n" +
+        "3. Copy the values of `auth_token` and `ct0`",
+        "info"
+      );
+
+      const authToken = await ctx.ui.input("Paste your auth_token cookie value:");
+      if (!authToken?.trim()) { ctx.ui.notify("Cancelled", "info"); return; }
+
+      const ct0 = await ctx.ui.input("Paste your ct0 cookie value:");
+      if (!ct0?.trim()) { ctx.ui.notify("Cancelled", "info"); return; }
+
+      // Step 3: Verify the tokens work
+      ctx.ui.notify("Verifying credentials...", "info");
+      const user = await verifyManualCredentials(authToken.trim(), ct0.trim());
+
+      if (!user) {
+        ctx.ui.notify(
+          "Verification failed — could not authenticate with those cookies.\n" +
+          "Make sure you copied the full values and that you're logged into x.com.",
+          "error"
+        );
+        return;
+      }
+
+      const session = {
+        authToken: authToken.trim(),
+        ct0: ct0.trim(),
+        username: user.username,
+        name: user.name,
+        userId: user.userId,
+        source: "manual",
+        authenticatedAt: new Date().toISOString(),
+      };
+
+      await storeTwitterSession(session);
+      ctx.ui.notify(`✓ Connected to Twitter/X as @${user.username}`, "success");
+      ctx.ui.setStatus("twitter", `🐦 @${user.username}`);
+    },
+  });
+
+  pi.registerCommand("twitter-logout", {
+    description: "Disconnect from Twitter/X",
+    handler: async (_args, ctx) => {
+      const hadSession = twitterSessionExists();
+      await clearTwitterSession();
+      ctx.ui.setStatus("twitter", undefined);
+      ctx.ui.notify(hadSession ? "Logged out of Twitter/X" : "No Twitter session found", "info");
+    },
+  });
+
+  pi.registerCommand("twitter-status", {
+    description: "Check Twitter/X connection status",
+    handler: async (_args, ctx) => {
+      const session = await loadTwitterSession();
+      if (session) {
+        ctx.ui.notify(
+          `🐦 Connected as @${session.username} (via ${session.source}, since ${session.authenticatedAt?.split("T")[0] || "unknown"})`,
+          "info"
+        );
+      } else {
+        ctx.ui.notify("Not connected to Twitter/X. Run /twitter-login", "warning");
+      }
+    },
+  });
+
   // --- Show connection status on session start ---
 
   pi.on("session_start", async (_event, ctx) => {
@@ -283,6 +400,13 @@ export default function (pi: ExtensionAPI) {
       if (session) {
         const phone = session.phone.replace(/(\d{3})\d+(\d{3})/, "$1***$2");
         ctx.ui.setStatus("telegram", `📱 ${phone}`);
+      }
+    }
+
+    if (twitterSessionExists()) {
+      const session = await loadTwitterSession();
+      if (session) {
+        ctx.ui.setStatus("twitter", `🐦 @${session.username}`);
       }
     }
   });
