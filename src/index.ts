@@ -99,32 +99,6 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerCommand("seed-update", {
-    description: "Pull the latest version of the Seed Network extension",
-    handler: async (_args, ctx) => {
-      const repoDir = join(__dirname, "..");
-      ctx.ui.notify("Pulling latest extension...", "info");
-      try {
-        // Checkout main and pull explicitly to avoid issues with
-        // detached HEAD or branches without upstream tracking
-        await pi.exec("git", ["checkout", "main"], { cwd: repoDir });
-        const result = await pi.exec("git", ["pull", "origin", "main"], { cwd: repoDir });
-        if (result.code !== 0) {
-          ctx.ui.notify(`git pull failed:\n${result.stderr || result.stdout}`, "error");
-          return;
-        }
-        const summary = result.stdout.trim();
-        if (summary === "Already up to date.") {
-          ctx.ui.notify("Already up to date.", "info");
-        } else {
-          ctx.ui.notify(`Updated.\n\n${summary}\n\nRestart pi to load the new version.`, "success");
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.ui.notify(`Update failed: ${msg}`, "error");
-      }
-    },
-  });
 
   pi.registerCommand("seed-logout", {
     description: "Disconnect from Seed Network",
