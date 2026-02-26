@@ -105,7 +105,10 @@ export default function (pi: ExtensionAPI) {
       const repoDir = join(__dirname, "..");
       ctx.ui.notify("Pulling latest extension...", "info");
       try {
-        const result = await pi.exec("git", ["pull"], { cwd: repoDir });
+        // Checkout main and pull explicitly to avoid issues with
+        // detached HEAD or branches without upstream tracking
+        await pi.exec("git", ["checkout", "main"], { cwd: repoDir });
+        const result = await pi.exec("git", ["pull", "origin", "main"], { cwd: repoDir });
         if (result.code !== 0) {
           ctx.ui.notify(`git pull failed:\n${result.stderr || result.stdout}`, "error");
           return;
