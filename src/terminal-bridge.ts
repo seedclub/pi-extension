@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { mkdir, readFile, writeFile, unlink, chmod } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { WebSocket } from "ws";
-import { getToken } from "./auth";
+import { getToken, resolveApiBase } from "./auth";
 
 // ---- Config storage ----
 
@@ -66,6 +66,8 @@ async function clearTerminalConfig(): Promise<boolean> {
 // ---- Constants ----
 
 const DEFAULT_BROKER_HTTP = "http://localhost:8787";
+const PROD_BROKER_HTTP = "https://seed-network-terminal-mvp-production.up.railway.app";
+const PROD_API_HOSTS = new Set(["beta.seedclub.com", "www.seedclub.com", "seedclub.com"]);
 const BACKOFF_BASE_MS = 200;
 const BACKOFF_MAX_MS = 30_000;
 const BACKOFF_JITTER = 0.3;
@@ -74,8 +76,29 @@ const HEARTBEAT_DEAD_AFTER_MS = 60_000;
 const WS_CLOSE_AUTH_INVALID = 4001;
 const WS_CLOSE_AUTH_REVOKED = 4003;
 
-function getBrokerHttpUrl(): string {
-  return process.env.SEED_BROKER_HTTP_URL || DEFAULT_BROKER_HTTP;
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+async function getBrokerHttpUrl(): Promise<{ url: string; source: string }> {
+  if (process.env.SEED_BROKER_HTTP_URL) {
+    return { url: process.env.SEED_BROKER_HTTP_URL, source: "SEED_BROKER_HTTP_URL" };
+  }
+
+  try {
+    const apiBase = await resolveApiBase();
+    const host = new URL(apiBase).hostname;
+    if (isLoopbackHost(host)) {
+      return { url: DEFAULT_BROKER_HTTP, source: `local api (${apiBase})` };
+    }
+    if (PROD_API_HOSTS.has(host)) {
+      return { url: PROD_BROKER_HTTP, source: `seed api (${apiBase})` };
+    }
+  } catch {
+    // fall through to localhost default below
+  }
+
+  return { url: DEFAULT_BROKER_HTTP, source: "default localhost fallback" };
 }
 
 let tmuxProbeResult: boolean | null = null;
@@ -524,19 +547,20 @@ export function registerTerminal(pi: ExtensionAPI) {
   pi.registerCommand("seed-terminal-status", {
     description: "Show terminal bridge connection status.",
     handler: async (_args, ctx) => {
+      const broker = await getBrokerHttpUrl();
       if (active?.isConnected()) {
-        ctx.ui.notify(`🖥 Connected to ${active.sessionId}`, "info");
+        ctx.ui.notify(`🖥 Connected to ${active.sessionId} via ${broker.url}`, "info");
         return;
       }
       const stored = await loadTerminalConfig();
       if (stored) {
         ctx.ui.notify(
-          `Saved session ${stored.sessionId}. Run /seed-terminal to reconnect, or /seed-terminal <CODE> to re-pair.`,
+          `Saved session ${stored.sessionId}. Run /seed-terminal to reconnect, or /seed-terminal <CODE> to re-pair. New pair claims will use ${broker.url} (${broker.source}).`,
           "info",
         );
       } else {
         ctx.ui.notify(
-          "No terminal bridge configured. Run /seed-terminal <CODE> to pair from the browser.",
+          `No terminal bridge configured. Run /seed-terminal <CODE> to pair from the browser. Pair claims will use ${broker.url} (${broker.source}).`,
           "warning",
         );
       }
@@ -571,8 +595,9 @@ export function registerTerminal(pi: ExtensionAPI) {
     code: string,
     token: string,
   ): Promise<void> {
-    const brokerHttpUrl = getBrokerHttpUrl();
-    ctx.ui.notify(`Claiming pair code ${code} at ${brokerHttpUrl}…`, "info");
+    const broker = await getBrokerHttpUrl();
+    const brokerHttpUrl = broker.url;
+    ctx.ui.notify(`Claiming pair code ${code} at ${brokerHttpUrl} (${broker.source})…`, "info");
     const claim = await claimPair({ brokerHttpUrl, token, code });
     if ("error" in claim) {
       ctx.ui.notify(claim.error, "error");
