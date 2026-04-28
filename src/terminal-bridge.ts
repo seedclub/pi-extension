@@ -17,6 +17,7 @@ import type {
 import { hostname, platform, userInfo, homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readFile, writeFile, unlink, chmod } from "node:fs/promises";
+import { execSync } from "node:child_process";
 import { WebSocket } from "ws";
 import { getToken } from "./auth";
 
@@ -77,6 +78,48 @@ function getBrokerHttpUrl(): string {
   return process.env.SEED_BROKER_HTTP_URL || DEFAULT_BROKER_HTTP;
 }
 
+let tmuxProbeResult: boolean | null = null;
+function tmuxAvailable(): boolean {
+  if (tmuxProbeResult !== null) return tmuxProbeResult;
+  try {
+    execSync("command -v tmux", { stdio: "ignore" });
+    tmuxProbeResult = true;
+  } catch {
+    tmuxProbeResult = false;
+  }
+  return tmuxProbeResult;
+}
+
+function shouldUseTmux(): boolean {
+  if (process.env.SEED_TERMINAL_USE_TMUX === "false") return false;
+  return tmuxAvailable();
+}
+
+// Isolated tmux socket + skip user config. Otherwise the user's `~/.tmux.conf`
+// may enable a status bar (often green) that repaints over the embedded pane.
+function tmuxCommandArgs(sessionName: string): string[] {
+  return [
+    "-L",
+    "seed",
+    "-f",
+    "/dev/null",
+    "new-session",
+    "-A",
+    "-s",
+    sessionName,
+    ";",
+    "set-option",
+    "-g",
+    "status",
+    "off",
+    ";",
+    "set-option",
+    "-g",
+    "default-terminal",
+    "xterm-256color",
+  ];
+}
+
 function backoffMs(attempt: number): number {
   const base = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
   const jitter = base * BACKOFF_JITTER * (Math.random() * 2 - 1);
@@ -118,9 +161,15 @@ async function claimPair(opts: {
         os: platform(),
         user: userInfo().username,
       }),
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.name === "TimeoutError") {
+      return {
+        error: `Timed out (15s) reaching broker at ${opts.brokerHttpUrl}. Set SEED_BROKER_HTTP_URL to the right host.`,
+      };
+    }
     return { error: `Network error reaching broker (${opts.brokerHttpUrl}): ${msg}` };
   }
   if (res.status === 401) return { error: "Unauthenticated. Check your Seed token (/seed-status)." };
@@ -169,8 +218,22 @@ async function createBridge(opts: CreateBridgeOptions): Promise<BridgeHandle> {
   function spawnPtyIfNeeded() {
     if (ptyProcess) return;
     const shell = process.env.SHELL || "/bin/bash";
+    const useTmux = shouldUseTmux();
+    let cmd: string;
+    let args: string[];
+    if (useTmux) {
+      // Wrapping in tmux means closing pi (or /seed-terminal-stop) doesn't
+      // kill the user's local shell — running processes survive, scrollback
+      // survives, and the next `/seed-terminal` reattaches to the same tmux
+      // session.
+      cmd = "tmux";
+      args = tmuxCommandArgs(`seed-${opts.config.sessionId}`);
+    } else {
+      cmd = shell;
+      args = ["-l"];
+    }
     try {
-      ptyProcess = pty.spawn(shell, ["-l"], {
+      ptyProcess = pty.spawn(cmd, args, {
         name: "xterm-256color",
         cols: sessionCols,
         rows: sessionRows,
@@ -508,8 +571,8 @@ export function registerTerminal(pi: ExtensionAPI) {
     code: string,
     token: string,
   ): Promise<void> {
-    ctx.ui.notify(`Claiming pair code ${code}…`, "info");
     const brokerHttpUrl = getBrokerHttpUrl();
+    ctx.ui.notify(`Claiming pair code ${code} at ${brokerHttpUrl}…`, "info");
     const claim = await claimPair({ brokerHttpUrl, token, code });
     if ("error" in claim) {
       ctx.ui.notify(claim.error, "error");
