@@ -45,6 +45,7 @@ import {
 import { unlink, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { registerMirror } from "./mirror";
+import { registerTerminal } from "./terminal-bridge";
 
 export default function (pi: ExtensionAPI) {
   // --- Register all tools ---
@@ -55,6 +56,9 @@ export default function (pi: ExtensionAPI) {
 
   // --- Session mirror (streams events to web app) ---
   registerMirror(pi);
+
+  // --- Terminal bridge (/seed-terminal) ---
+  registerTerminal(pi);
 
   // Wrap pi.exec for use with runTelegramScript
   const exec = (cmd: string, args: string[], opts?: { timeout?: number; cwd?: string; signal?: AbortSignal }) =>

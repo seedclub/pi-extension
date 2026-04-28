@@ -6,9 +6,18 @@
     "pi-package"
   ],
   "license": "UNLICENSED",
+  "scripts": {
+    "postinstall": "find node_modules -path '*node-pty*/prebuilds/darwin-*/spawn-helper' -exec chmod +x {} + 2>/dev/null || true"
+  },
   "dependencies": {
     "@connormartin/bird": "^0.8.0",
+    "node-pty": "^1.1.0",
     "ws": "^8.19.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "node-pty"
+    ]
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
