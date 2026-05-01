@@ -119,6 +119,10 @@ Clears your API token and relay config. Re-run `/seed-connect` to reconnect.
 | `/seed-connect [token]` | Connect to Seed Network (browser flow, or paste token directly) |
 | `/seed-logout` | Disconnect from Seed Network |
 | `/seed-status` | Show current Seed Network connection |
+| `/seed-terminal [code]` | Pair or reconnect this machine's terminal to the Seed terminal web app |
+| `/seed-terminal-status` | Show terminal bridge status and which broker URL pair claims will use |
+| `/seed-terminal-stop` | Disconnect the active terminal bridge |
+| `/seed-terminal-forget` | Clear the saved terminal bridge session |
 | `/telegram-login` | Connect your Telegram account (interactive) |
 | `/telegram-logout` | Disconnect Telegram and revoke the session |
 | `/telegram-status` | Show connected Telegram phone number |
@@ -129,6 +133,18 @@ Clears your API token and relay config. Re-run `/seed-connect` to reconnect.
 
 **Commands seem outdated or missing after installing**
 Pi caches the extension at `~/.pi/agent/git/github.com/seedclub/pi-extension/`. Running `pi install` again won't update it if the directory already exists. Run `pi update` from your terminal (outside of pi), then `/reload` inside your pi session to pick up changes.
+
+**`/seed-terminal <CODE>` claims against the wrong broker**
+By default, the terminal bridge now uses:
+- `SEED_BROKER_HTTP_URL` if set
+- `http://localhost:8787` when you're connected to a local Seed API / dev app
+- `https://seed-network-terminal-mvp-production.up.railway.app` when you're connected to the production Seed app
+
+Run `/seed-terminal-status` to see which broker URL will be used. If needed, override it explicitly before starting pi:
+
+```bash
+SEED_BROKER_HTTP_URL=https://seed-network-terminal-mvp-production.up.railway.app pi
+```
 
 **`/seed-connect` opens a browser but nothing happens in pi**
 The callback server runs on a random local port. Make sure nothing is blocking localhost connections, then try again.
