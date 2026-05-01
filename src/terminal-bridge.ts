@@ -28,7 +28,8 @@ const TERMINAL_FILE = join(CONFIG_DIR, "terminal.json");
 
 interface TerminalConfig {
   sessionId: string;
-  bridgeToken: string;
+  hostToken: string;
+  bridgeToken?: string;
   wsUrl: string;
   brokerHttpUrl: string;
   fetchedAt: string;
@@ -161,7 +162,7 @@ function cleanEnv(): Record<string, string> {
 
 interface ClaimSuccess {
   sessionId: string;
-  bridgeToken: string;
+  hostToken: string;
   wsUrl: string;
 }
 
@@ -352,7 +353,7 @@ async function createBridge(opts: CreateBridgeOptions): Promise<BridgeHandle> {
   function connect() {
     if (closingManually) return;
     const wsUrl = new URL(opts.config.wsUrl);
-    wsUrl.searchParams.set("token", opts.config.bridgeToken);
+    wsUrl.searchParams.set("token", opts.config.hostToken || opts.config.bridgeToken || "");
     ws = new WebSocket(wsUrl.toString());
 
     ws.on("open", () => {
@@ -365,7 +366,7 @@ async function createBridge(opts: CreateBridgeOptions): Promise<BridgeHandle> {
       ws!.send(
         JSON.stringify({
           type: "hello",
-          bridge: {
+          host: {
             hostname: hostname(),
             os: platform(),
             user: userInfo().username,
@@ -606,14 +607,14 @@ export function registerTerminal(pi: ExtensionAPI) {
 
     const config: TerminalConfig = {
       sessionId: claim.sessionId,
-      bridgeToken: claim.bridgeToken,
+      hostToken: claim.hostToken,
       wsUrl: claim.wsUrl,
       brokerHttpUrl,
       fetchedAt: new Date().toISOString(),
     };
     await storeTerminalConfig({
       sessionId: claim.sessionId,
-      bridgeToken: claim.bridgeToken,
+      hostToken: claim.hostToken,
       wsUrl: claim.wsUrl,
       brokerHttpUrl,
     });
